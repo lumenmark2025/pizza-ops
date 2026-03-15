@@ -10,6 +10,19 @@ import type {
 } from '../types/domain'
 import { addMinutes, combineDateAndTime, isAfterOrEqual } from './time'
 
+function hasValidServiceWindow(service?: ServiceConfig | null): service is ServiceConfig {
+  return Boolean(
+    service &&
+      service.date &&
+      service.startTime &&
+      service.lastCollectionTime &&
+      Number.isFinite(service.slotSizeMinutes) &&
+      service.slotSizeMinutes > 0 &&
+      Number.isFinite(service.pizzasPerSlot) &&
+      service.pizzasPerSlot >= 0,
+  )
+}
+
 function getPizzaCount(items: OrderItem[], menuItems: MenuItem[]) {
   return items.reduce((count, item) => {
     const menuItem = menuItems.find((entry) => entry.id === item.menuItemId)
@@ -17,7 +30,11 @@ function getPizzaCount(items: OrderItem[], menuItems: MenuItem[]) {
   }, 0)
 }
 
-export function generateServiceSlots(service: ServiceConfig) {
+export function generateServiceSlots(service?: ServiceConfig | null) {
+  if (!hasValidServiceWindow(service)) {
+    return []
+  }
+
   const slots: string[] = []
   let current = combineDateAndTime(service.date, service.startTime)
   const last = combineDateAndTime(service.date, service.lastCollectionTime)
@@ -30,17 +47,21 @@ export function generateServiceSlots(service: ServiceConfig) {
   return slots
 }
 
-export function buildSlotLoadMap(service: ServiceConfig, orders: Order[]) {
+export function buildSlotLoadMap(service: ServiceConfig, orders: Order[] = []) {
   const load = new Map<string, number>()
   for (const slot of generateServiceSlots(service)) {
     load.set(slot, 0)
   }
 
   for (const order of orders) {
-    for (const allocation of order.slotAllocations) {
+    for (const allocation of order.slotAllocations ?? []) {
+      if (!allocation?.slotTime) {
+        continue
+      }
+
       load.set(
         allocation.slotTime,
-        (load.get(allocation.slotTime) ?? 0) + allocation.pizzas,
+        (load.get(allocation.slotTime) ?? 0) + (allocation.pizzas ?? 0),
       )
     }
   }
@@ -55,6 +76,14 @@ export function allocateAcrossSlots(
   pizzaCount: number,
 ) {
   const slots = generateServiceSlots(service)
+  if (!slots.length || !promisedTime) {
+    return { ok: false as const, warning: 'Service slots are not available yet.' }
+  }
+
+  if (pizzaCount <= 0) {
+    return { ok: true as const, allocations: [] }
+  }
+
   const loadMap = buildSlotLoadMap(service, orders)
   const endIndex = slots.findIndex((slot) => slot === promisedTime)
 
@@ -90,13 +119,25 @@ export function allocateAcrossSlots(
 }
 
 export function getAvailableSlots(
-  service: ServiceConfig,
-  orders: Order[],
-  items: OrderItem[],
-  menuItems: MenuItem[],
+  service?: ServiceConfig | null,
+  orders: Order[] = [],
+  items: OrderItem[] = [],
+  menuItems: MenuItem[] = [],
 ) {
+  if (!hasValidServiceWindow(service) || !menuItems.length) {
+    return []
+  }
+
   const pizzaCount = getPizzaCount(items, menuItems)
+  if (pizzaCount <= 0) {
+    return []
+  }
+
   const slots = generateServiceSlots(service)
+  if (!slots.length) {
+    return []
+  }
+
   const earliestTime = service.pausedUntil
     ? addMinutes(service.pausedUntil, service.delayMinutes)
     : addMinutes(combineDateAndTime(service.date, service.startTime), service.delayMinutes)
@@ -113,9 +154,7 @@ export function getAvailableSlots(
 
     accumulator.push({
       promisedTime: slot,
-      remainingCapacity:
-        service.pizzasPerSlot -
-        allocation.allocations[allocation.allocations.length - 1].pizzas,
+      remainingCapacity: service.pizzasPerSlot - (allocation.allocations.at(-1)?.pizzas ?? 0),
       allocations: allocation.allocations,
     })
     return accumulator

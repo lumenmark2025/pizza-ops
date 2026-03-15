@@ -295,6 +295,13 @@ function OrderEntryPage() {
               </button>
             ))}
           </div>
+          {!availableSlots.length ? (
+            <p className="mt-3 text-sm text-slate-300">
+              {basket.length
+                ? 'No collection slots available right now.'
+                : 'Add a pizza to load valid collection times.'}
+            </p>
+          ) : null}
           <Button className="mt-4 w-full" size="lg" onClick={submitOrder}>Place order</Button>
           {message ? <p className="mt-3 text-sm text-orange-200">{message}</p> : null}
         </div>

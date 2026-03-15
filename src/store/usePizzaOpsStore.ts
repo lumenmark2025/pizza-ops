@@ -256,6 +256,10 @@ export const usePizzaOpsStore = create<StoreState>()(
       setOnlineStatus: (status) => set({ isOnline: status }),
       getAvailableTimes: (items) => {
         const state = get()
+        if (!state.service || !state.menuItems.length) {
+          return []
+        }
+
         return getAvailableSlots(state.service, state.orders, items, state.menuItems)
       },
       createOrder: (input) => {
