@@ -1,0 +1,15 @@
+{
+  "name": "Pizza Ops MVP",
+  "short_name": "Pizza Ops",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f4ef",
+  "theme_color": "#1f2937",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
