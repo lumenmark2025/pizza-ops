@@ -93,6 +93,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 { href: '/expeditor', label: 'Expeditor', icon: PackageCheck },
                 { href: '/board', label: 'Customer Board', icon: MonitorSmartphone },
                 { href: '/admin', label: 'Admin', icon: Settings2 },
+                { href: '/admin/services', label: 'Services', icon: ClipboardList },
                 { href: '/order', label: 'Public Order', icon: SmartphoneNfc },
               ].map((item) => {
                 const Icon = item.icon

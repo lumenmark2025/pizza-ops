@@ -5,6 +5,7 @@ import { AdminPage } from './features/admin-ops'
 import { ExpeditorPage, KdsPage, PaymentPage, CustomerBoardPage } from './features/ops-views'
 import { OrderEntryPage } from './features/operator-order-entry'
 import { AppShell } from './features/operator-shell'
+import { ServiceEditPage, ServiceNewPage, ServicesListPage } from './features/service-management'
 import { SAFE_MODE } from './lib/runtime-flags'
 import { usePizzaOpsStore } from './store/usePizzaOpsStore'
 
@@ -60,6 +61,9 @@ function App() {
         <Route path="/expeditor" element={<ExpeditorPage />} />
         <Route path="/board" element={<CustomerBoardPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin/services" element={<ServicesListPage />} />
+        <Route path="/admin/services/new" element={<ServiceNewPage />} />
+        <Route path="/admin/services/:serviceId" element={<ServiceEditPage />} />
         <Route path="/payments/:paymentId" element={<PaymentPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

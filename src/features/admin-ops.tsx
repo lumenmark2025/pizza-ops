@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType } from 'react'
 import { AlarmClockCheck, CircleDollarSign, TimerReset } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -38,7 +39,7 @@ function StatPanel({
   )
 }
 
-export function AdminPage() {
+export function ServiceEditPanel() {
   const service = usePizzaOpsStore((state) => state.service)
   const serviceLocations = usePizzaOpsStore((state) => state.serviceLocations)
   const orders = usePizzaOpsStore((state) => state.orders)
@@ -553,6 +554,43 @@ export function AdminPage() {
             ))}
           </div>
         </Card>
+      </div>
+    </div>
+  )
+}
+
+export function AdminPage() {
+  const service = usePizzaOpsStore((state) => state.service)
+  const services = usePizzaOpsStore((state) => state.services)
+  const orders = usePizzaOpsStore((state) => state.orders)
+  const payments = usePizzaOpsStore((state) => state.payments)
+  const syncIssues = usePizzaOpsStore((state) => state.loyverseQueue.filter((entry) => entry.status === 'failed').length)
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+      <Card className="p-5 sm:p-6">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Ops Dashboard</p>
+        <h2 className="mt-2 font-display text-3xl font-bold">Admin overview</h2>
+        <p className="mt-2 max-w-2xl text-sm text-slate-500">
+          Service creation and editing now live in the dedicated services workflow. Use this page as the overall operations jump point.
+        </p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Link to="/admin/services">
+            <Button>Open services</Button>
+          </Link>
+          <Link to={`/admin/services/${service.id}`}>
+            <Button variant="secondary">Open active service</Button>
+          </Link>
+          <Link to="/admin/services/new">
+            <Button variant="outline">Create service</Button>
+          </Link>
+        </div>
+      </Card>
+
+      <div className="grid gap-4">
+        <StatPanel icon={AlarmClockCheck} title="Active Service" value={service.name} detail={`${service.locationName} · ${service.date}`} />
+        <StatPanel icon={TimerReset} title="Live Orders" value={`${orders.filter((entry) => entry.status !== 'completed').length}`} detail={`${services.length} services in list`} />
+        <StatPanel icon={CircleDollarSign} title="Payments" value={`${payments.filter((entry) => entry.status === 'paid').length} paid`} detail={`${syncIssues} Loyverse sync issues`} />
       </div>
     </div>
   )

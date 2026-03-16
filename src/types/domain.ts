@@ -184,6 +184,7 @@ export type SlotAvailability = {
 
 export type ServiceSnapshot = {
   service: ServiceConfig
+  services: ServiceConfig[]
   serviceLocations: string[]
   ingredients: Ingredient[]
   menuItems: MenuItem[]

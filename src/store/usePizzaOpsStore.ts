@@ -59,7 +59,10 @@ type StoreState = ServiceSnapshot & {
   resetDemo: () => void
   updateService: (updates: Partial<ServiceConfig>, actor: string) => void
   updateServiceLocations: (locations: string[], actor: string) => void
-  createFreshService: (input: Partial<ServiceConfig>, actor: string) => void
+  createFreshService: (input: Partial<ServiceConfig>, actor: string, options?: { applyInventoryDefaults?: boolean }) => string
+  loadServiceForEditing: (serviceId: string) => boolean
+  duplicateService: (serviceId: string, actor: string) => string | null
+  archiveService: (serviceId: string, actor: string) => void
   setInventoryQuantity: (ingredientId: string, quantity: number, actor: string) => void
   adjustInventoryQuantity: (ingredientId: string, delta: number, actor: string) => void
   setInventoryDefaultQuantity: (ingredientId: string, quantity: number, actor: string) => void
@@ -79,6 +82,7 @@ type StoreState = ServiceSnapshot & {
 
 const SNAPSHOT_KEYS = [
   'service',
+  'services',
   'serviceLocations',
   'ingredients',
   'menuItems',
@@ -801,6 +805,9 @@ export const usePizzaOpsStore = create<StoreState>()(
         updateService: (updates, actor) => {
           commit((current) => ({
             service: { ...current.service, ...updates },
+            services: current.services.map((entry) =>
+              entry.id === current.service.id ? { ...entry, ...updates } : entry,
+            ),
             activityLog: [
               createActivity('service_updated', actor, 'Service settings updated.'),
               ...current.activityLog,
@@ -816,7 +823,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        createFreshService: (input, actor) => {
+        createFreshService: (input, actor, options) => {
           const current = get()
           const nextService: ServiceConfig = {
             ...current.service,
@@ -835,8 +842,12 @@ export const usePizzaOpsStore = create<StoreState>()(
           commit(() => ({
             ...createDemoState(),
             service: nextService,
+            services: [nextService, ...current.services.filter((entry) => entry.id !== nextService.id)],
             serviceLocations: current.serviceLocations,
-            inventory: current.inventoryDefaults.map((entry) => ({ ...entry })),
+            inventory:
+              options?.applyInventoryDefaults === false
+                ? current.inventoryDefaults.map((entry) => ({ ...entry, quantity: 0 }))
+                : current.inventoryDefaults.map((entry) => ({ ...entry })),
             inventoryDefaults: current.inventoryDefaults.map((entry) => ({ ...entry })),
             orders: [],
             customers: [],
@@ -844,6 +855,68 @@ export const usePizzaOpsStore = create<StoreState>()(
             loyverseQueue: [],
             history: [],
             activityLog: [createActivity('service_updated', actor, `Created service ${nextService.name}.`)],
+          }))
+          return nextService.id
+        },
+        loadServiceForEditing: (serviceId) => {
+          const state = get()
+          const target = state.services.find((entry) => entry.id === serviceId)
+          if (!target) {
+            return false
+          }
+
+          commit((current) => ({
+            service: {
+              ...target,
+              delayMinutes: target.delayMinutes ?? 0,
+              pausedUntil: target.pausedUntil ?? null,
+              pauseReason: target.pauseReason ?? null,
+            },
+            inventory: current.inventoryDefaults.map((entry) => ({ ...entry })),
+            orders: serviceId === current.service.id ? current.orders : [],
+            customers: serviceId === current.service.id ? current.customers : [],
+            payments: serviceId === current.service.id ? current.payments : [],
+            loyverseQueue: serviceId === current.service.id ? current.loyverseQueue : [],
+            history: serviceId === current.service.id ? current.history : [],
+            activityLog: serviceId === current.service.id ? current.activityLog : [],
+          }))
+          return true
+        },
+        duplicateService: (serviceId, actor) => {
+          const state = get()
+          const source = state.services.find((entry) => entry.id === serviceId)
+          if (!source) {
+            return null
+          }
+
+          const duplicateId = randomId('service')
+          const duplicate = {
+            ...source,
+            id: duplicateId,
+            name: `${source.name} Copy`,
+            status: 'draft' as const,
+            acceptPublicOrders: false,
+            publicOrderClosureReason: 'Review before opening',
+          }
+
+          commit((current) => ({
+            services: [duplicate, ...current.services],
+            activityLog: [
+              createActivity('service_updated', actor, `Duplicated service ${source.name}.`),
+              ...current.activityLog,
+            ],
+          }))
+          return duplicateId
+        },
+        archiveService: (serviceId, actor) => {
+          commit((current) => ({
+            services: current.services.map((entry) =>
+              entry.id === serviceId ? { ...entry, status: 'closed', acceptPublicOrders: false } : entry,
+            ),
+            activityLog: [
+              createActivity('service_updated', actor, `Archived service ${serviceId}.`),
+              ...current.activityLog,
+            ],
           }))
         },
         setInventoryQuantity: (ingredientId, quantity, actor) => {
@@ -964,6 +1037,7 @@ export const usePizzaOpsStore = create<StoreState>()(
       name: 'pizza-ops-mvp',
       partialize: (state) => ({
         service: state.service,
+        services: state.services,
         serviceLocations: state.serviceLocations,
         ingredients: state.ingredients,
         menuItems: state.menuItems,
