@@ -22,6 +22,10 @@ type PublicDraft = {
   mobile: string
   notes: string
   selectedTime: string
+  paymentState: 'draft' | 'pending_payment' | 'paid' | 'cancelled'
+  pendingOrderId: string | null
+  pendingPaymentId: string | null
+  pendingCheckoutUrl: string | null
 }
 
 type PizzaEditorState = {
@@ -38,6 +42,10 @@ const EMPTY_DRAFT: PublicDraft = {
   mobile: '',
   notes: '',
   selectedTime: '',
+  paymentState: 'draft',
+  pendingOrderId: null,
+  pendingPaymentId: null,
+  pendingCheckoutUrl: null,
 }
 
 function getPaymentStatusFromQuery(value: string | null) {
@@ -281,58 +289,40 @@ export function CustomerOrderPage() {
   const eligibleServices = useEligibleServices()
   const locations = usePizzaOpsStore((state) => state.locations)
 
-  const groupedLocations = useMemo(
-    () =>
-      locations
-        .filter((location) => eligibleServices.some((service) => service.locationId === location.id))
-        .map((location) => ({
-          location,
-          services: eligibleServices.filter((service) => service.locationId === location.id),
-        })),
-    [eligibleServices, locations],
-  )
-
   return (
     <CustomerShell eyebrow="Public Ordering" title="Choose where you’re collecting from">
       <div className="grid gap-4">
-        {groupedLocations.map(({ location, services }) => (
-          <Card key={location.id} className="overflow-hidden rounded-[28px] border-white/70 bg-white/90 p-0">
-            <div className="border-b border-slate-200 bg-slate-950 px-5 py-5 text-white sm:px-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+        {eligibleServices.map((service) => {
+          const location = locations.find((entry) => entry.id === service.locationId)
+          return (
+            <Link key={service.id} to={`/order/service/${service.id}`} className="block rounded-[28px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:bg-white sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="font-display text-3xl font-bold">{location.name}</h2>
-                  <p className="mt-2 text-sm text-slate-300">
-                    {location.addressLine1}
-                    {location.addressLine2 ? `, ${location.addressLine2}` : ''}, {location.townCity} {location.postcode}
+                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">
+                    {location?.name ?? service.locationName}
                   </p>
+                  <h2 className="mt-2 font-display text-3xl font-bold">{service.name}</h2>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {location?.addressLine1}
+                    {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-500">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
                 </div>
-                <Link to={`/order/location/${location.id}`}>
-                  <Button variant="secondary">View services</Button>
-                </Link>
+                <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
               </div>
-            </div>
-            <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-6">
-              {services.map((service) => (
-                <Link key={service.id} to={`/order/service/${service.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-white">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{service.name}</p>
-                      <p className="mt-1 text-sm text-slate-500">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
-                    </div>
-                    <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
-                  </div>
-                  <p className="mt-3 text-sm text-slate-500">
-                    {service.acceptPublicOrders
-                      ? service.status === 'live'
-                        ? 'Ordering is open now.'
-                        : 'Pre-orders are available.'
-                      : service.publicOrderClosureReason ?? 'Not currently accepting orders.'}
-                  </p>
-                </Link>
-              ))}
-            </div>
-          </Card>
-        ))}
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-slate-500">
+                  {service.acceptPublicOrders
+                    ? service.status === 'live'
+                      ? 'Ordering is open now.'
+                      : 'Pre-orders are available.'
+                    : service.publicOrderClosureReason ?? 'Not currently accepting orders.'}
+                </p>
+                <Button variant="secondary">Select service</Button>
+              </div>
+            </Link>
+          )
+        })}
       </div>
     </CustomerShell>
   )
@@ -401,7 +391,15 @@ export function CustomerServicePage() {
 
   useEffect(() => {
     if (serviceId && draft.serviceId !== serviceId) {
-      patchDraft({ serviceId, basket: [], selectedTime: '' })
+      patchDraft({
+        serviceId,
+        basket: [],
+        selectedTime: '',
+        paymentState: 'draft',
+        pendingOrderId: null,
+        pendingPaymentId: null,
+        pendingCheckoutUrl: null,
+      })
     }
   }, [draft.serviceId, patchDraft, serviceId])
 
@@ -456,6 +454,10 @@ export function CustomerServicePage() {
 
     if (state.basketItemId) {
       patchDraft({
+        paymentState: 'draft',
+        pendingOrderId: null,
+        pendingPaymentId: null,
+        pendingCheckoutUrl: null,
         basket: draft.basket.map((entry) =>
           entry.id === state.basketItemId ? { ...entry, modifiers: nextModifiers } : entry,
         ),
@@ -468,7 +470,13 @@ export function CustomerServicePage() {
         modifiers: nextModifiers.map((entry) => ({ ...entry })),
       }))
 
-      patchDraft({ basket: [...draft.basket, ...newItems] })
+      patchDraft({
+        paymentState: 'draft',
+        pendingOrderId: null,
+        pendingPaymentId: null,
+        pendingCheckoutUrl: null,
+        basket: [...draft.basket, ...newItems],
+      })
     }
 
     setEditor(null)
@@ -557,6 +565,11 @@ export function CustomerServicePage() {
         <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Your order</p>
           <h2 className="mt-2 font-display text-3xl font-bold">Basket</h2>
+          {draft.paymentState === 'pending_payment' ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              A payment attempt is already in progress. You can still edit this basket and retry checkout if needed.
+            </div>
+          ) : null}
           <div className="mt-5 space-y-3">
             {draft.basket.length ? (
               draft.basket.map((item) => {
@@ -584,7 +597,13 @@ export function CustomerServicePage() {
                       <Button size="sm" variant="secondary" onClick={() => openExistingPizza(item.id)}>
                         Edit
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => patchDraft({ basket: draft.basket.filter((entry) => entry.id !== item.id) })}>
+                      <Button size="sm" variant="outline" onClick={() => patchDraft({
+                        paymentState: 'draft',
+                        pendingOrderId: null,
+                        pendingPaymentId: null,
+                        pendingCheckoutUrl: null,
+                        basket: draft.basket.filter((entry) => entry.id !== item.id),
+                      })}>
                         Remove
                       </Button>
                     </div>
@@ -630,7 +649,7 @@ export function CustomerCheckoutPage() {
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
   const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
-  const { draft, patchDraft, resetDraft } = usePublicDraft()
+  const { draft, patchDraft } = usePublicDraft()
   const [message, setMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -702,7 +721,12 @@ export function CustomerCheckoutPage() {
         status: 'pending',
       })
 
-      resetDraft()
+      patchDraft({
+        paymentState: 'pending_payment',
+        pendingOrderId: result.orderId,
+        pendingPaymentId: result.paymentId,
+        pendingCheckoutUrl: checkout.hostedCheckoutUrl,
+      })
       window.location.assign(checkout.hostedCheckoutUrl)
     } catch (error) {
       const nextMessage =
@@ -766,6 +790,11 @@ export function CustomerCheckoutPage() {
             <Input placeholder="Mobile number (optional)" value={draft.mobile} onChange={(event) => patchDraft({ mobile: event.target.value })} />
             <Textarea placeholder="Notes for the team" value={draft.notes} onChange={(event) => patchDraft({ notes: event.target.value })} />
           </div>
+          {draft.paymentState === 'pending_payment' ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              You can go back, edit this order, and retry payment. This basket stays saved until payment completes.
+            </div>
+          ) : null}
           <div className="mt-5">
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Collection time</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -802,6 +831,7 @@ export function CustomerOrderConfirmationPage() {
   const orders = usePizzaOpsStore((state) => state.orders)
   const payments = usePizzaOpsStore((state) => state.payments)
   const updatePaymentStatus = usePizzaOpsStore((state) => state.updatePaymentStatus)
+  const { patchDraft, resetDraft } = usePublicDraft()
 
   const order = orders.find((entry) => entry.id === orderId)
   const payment = payments.find((entry) => entry.orderId === orderId)
@@ -818,7 +848,18 @@ export function CustomerOrderConfirmationPage() {
     if (requestedStatus && requestedStatus !== payment.status) {
       updatePaymentStatus(payment.id, requestedStatus as PaymentStatus)
     }
-  }, [payment, searchParams, updatePaymentStatus])
+
+    if (requestedStatus === 'paid') {
+      resetDraft()
+      return
+    }
+
+    if (requestedStatus === 'failed') {
+      patchDraft({
+        paymentState: 'cancelled',
+      })
+    }
+  }, [patchDraft, payment, resetDraft, searchParams, updatePaymentStatus])
 
   if (!order || !payment) {
     return <Navigate to="/order" replace />
