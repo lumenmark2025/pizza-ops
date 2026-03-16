@@ -42,7 +42,6 @@ export function OrderEntryPage() {
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
-  const activePagerNumbers = usePizzaOpsStore((state) => state.getActivePagerNumbers())
   const [customerName, setCustomerName] = useState('')
   const [mobile, setMobile] = useState('')
   const [source, setSource] = useState<OrderSource>('walkup')
@@ -57,6 +56,13 @@ export function OrderEntryPage() {
   const availability = useMemo(
     () => getMenuAvailability(inventory, recipes, menuItems, orders),
     [inventory, menuItems, orders, recipes],
+  )
+  const activePagerNumbers = useMemo(
+    () =>
+      orders
+        .filter((entry) => entry.status !== 'completed' && entry.pagerNumber)
+        .map((entry) => entry.pagerNumber as number),
+    [orders],
   )
   const availableSlots = useMemo(() => getAvailableTimes(basket), [basket, getAvailableTimes])
   const total = useMemo(() => getOrderItemsTotal(basket, menuItems), [basket, menuItems])
