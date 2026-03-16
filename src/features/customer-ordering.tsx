@@ -94,22 +94,16 @@ export function CustomerOrderPage() {
   }, [eligibleServices, loadServiceForEditing, service.id])
 
   function addToBasket(menuItemId: string) {
-    setBasket((current) => {
-      const existing = current.find((item) => item.menuItemId === menuItemId)
-      return existing
-        ? current.map((item) =>
-            item.menuItemId === menuItemId
-              ? { ...item, quantity: item.quantity + 1 }
-              : item,
-          )
-        : [...current, { id: menuItemId, menuItemId, quantity: 1 }]
-    })
+    setBasket((current) => [
+      ...current,
+      { id: `${menuItemId}_${crypto.randomUUID()}`, menuItemId, quantity: 1, modifiers: [] },
+    ])
   }
 
-  function updateQuantity(menuItemId: string, quantity: number) {
+  function updateQuantity(itemId: string, quantity: number) {
     setBasket((current) =>
       current
-        .map((item) => (item.menuItemId === menuItemId ? { ...item, quantity } : item))
+        .map((item) => (item.id === itemId ? { ...item, quantity } : item))
         .filter((item) => item.quantity > 0),
     )
   }
@@ -123,10 +117,10 @@ export function CustomerOrderPage() {
     )
   }
 
-  function toggleModifier(menuItemId: string, modifier: Modifier) {
+  function toggleModifier(itemId: string, modifier: Modifier) {
     setBasket((current) =>
       current.map((item) => {
-        if (item.menuItemId !== menuItemId) {
+        if (item.id !== itemId) {
           return item
         }
 
@@ -147,6 +141,24 @@ export function CustomerOrderPage() {
         }
       }),
     )
+  }
+
+  function duplicatePizza(itemId: string) {
+    setBasket((current) => {
+      const target = current.find((item) => item.id === itemId)
+      if (!target) {
+        return current
+      }
+
+      return [
+        ...current,
+        {
+          ...target,
+          id: `${target.menuItemId}_${crypto.randomUUID()}`,
+          modifiers: target.modifiers?.map((entry) => ({ ...entry })) ?? [],
+        },
+      ]
+    })
   }
 
   async function handlePay() {
@@ -304,7 +316,7 @@ export function CustomerOrderPage() {
 
                   return (
                     <div
-                      key={item.menuItemId}
+                      key={item.id}
                       className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
                     >
                       <div>
@@ -320,20 +332,20 @@ export function CustomerOrderPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => updateQuantity(item.menuItemId, item.quantity - 1)}
+                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
                         >
                           -
                         </Button>
-                        <span className="w-7 text-center font-semibold">{item.quantity}</span>
+                        <span className="w-12 text-center text-sm font-semibold">1 pizza</span>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => updateQuantity(item.menuItemId, item.quantity + 1)}
+                          onClick={() => duplicatePizza(item.id)}
                         >
                           +
                         </Button>
                         {getEligibleModifiers(item.menuItemId).length ? (
-                          <Button size="sm" variant="secondary" onClick={() => setExpandedItemId((current) => current === item.menuItemId ? null : item.menuItemId)}>
+                          <Button size="sm" variant="secondary" onClick={() => setExpandedItemId((current) => current === item.id ? null : item.id)}>
                             Modify
                           </Button>
                         ) : null}
@@ -349,12 +361,12 @@ export function CustomerOrderPage() {
             </div>
             {basket.map((item) => {
               const eligibleModifiers = getEligibleModifiers(item.menuItemId)
-              if (!eligibleModifiers.length || expandedItemId !== item.menuItemId) {
+              if (!eligibleModifiers.length || expandedItemId !== item.id) {
                 return null
               }
 
               return (
-                <div key={`${item.menuItemId}_mods`} className="mt-3 flex flex-wrap gap-2">
+                <div key={`${item.id}_mods`} className="mt-3 flex flex-wrap gap-2">
                   {eligibleModifiers.map((modifier) => {
                     const active = item.modifiers?.some((entry) => entry.modifierId === modifier.id)
                     return (
@@ -364,7 +376,7 @@ export function CustomerOrderPage() {
                           'rounded-full border px-3 py-1 text-xs font-semibold',
                           active ? 'border-orange-400 bg-orange-100 text-orange-700' : 'border-slate-300 bg-white text-slate-600',
                         )}
-                        onClick={() => toggleModifier(item.menuItemId, modifier)}
+                        onClick={() => toggleModifier(item.id, modifier)}
                       >
                         {modifier.name} {modifier.priceDelta >= 0 ? '+' : ''}{currency(modifier.priceDelta)}
                       </button>
