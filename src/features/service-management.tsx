@@ -19,8 +19,9 @@ function ServiceForm({
   submitLabel: string
   onSubmit: (value: Partial<ServiceConfig>, applyDefaults: boolean) => void
 }) {
-  const locations = usePizzaOpsStore((state) => state.locations.filter((entry) => entry.active))
+  const allLocations = usePizzaOpsStore((state) => state.locations)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
+  const locations = useMemo(() => allLocations.filter((entry) => entry.active), [allLocations])
   const [applyDefaults, setApplyDefaults] = useState(true)
   const [form, setForm] = useState({
     name: initialValue.name,

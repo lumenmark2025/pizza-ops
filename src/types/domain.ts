@@ -45,6 +45,7 @@ export type Ingredient = {
   name: string
   unit: string
   lowStockThreshold: number
+  active?: boolean
 }
 
 export type MenuItem = {

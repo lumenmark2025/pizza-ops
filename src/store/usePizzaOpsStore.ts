@@ -16,6 +16,7 @@ import { addMinutes, combineDateAndTime, formatTime, toIsoNow } from '../lib/tim
 import type {
   ActivityLogEntry,
   Customer,
+  Ingredient,
   Location,
   MenuItem,
   MenuItemRecipe,
@@ -65,6 +66,7 @@ type StoreState = ServiceSnapshot & {
   loadServiceForEditing: (serviceId: string) => boolean
   duplicateService: (serviceId: string, actor: string) => string | null
   archiveService: (serviceId: string, actor: string) => void
+  upsertIngredient: (ingredient: Ingredient, defaultQuantity: number, actor: string) => void
   setInventoryQuantity: (ingredientId: string, quantity: number, actor: string) => void
   adjustInventoryQuantity: (ingredientId: string, delta: number, actor: string) => void
   setInventoryDefaultQuantity: (ingredientId: string, quantity: number, actor: string) => void
@@ -955,6 +957,30 @@ export const usePizzaOpsStore = create<StoreState>()(
             ),
             activityLog: [
               createActivity('service_updated', actor, `Archived service ${serviceId}.`),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        upsertIngredient: (ingredient, defaultQuantity, actor) => {
+          const exists = get().ingredients.some((entry) => entry.id === ingredient.id)
+          commit((current) => ({
+            ingredients: exists
+              ? current.ingredients.map((entry) => (entry.id === ingredient.id ? ingredient : entry))
+              : [...current.ingredients, ingredient],
+            inventoryDefaults: exists
+              ? current.inventoryDefaults.map((entry) =>
+                  entry.ingredientId === ingredient.id ? { ...entry, quantity: defaultQuantity } : entry,
+                )
+              : [...current.inventoryDefaults, { ingredientId: ingredient.id, quantity: defaultQuantity }],
+            inventory: exists
+              ? current.inventory.map((entry) =>
+                  entry.ingredientId === ingredient.id && entry.quantity === 0
+                    ? { ...entry, quantity: defaultQuantity }
+                    : entry,
+                )
+              : [...current.inventory, { ingredientId: ingredient.id, quantity: defaultQuantity }],
+            activityLog: [
+              createActivity('inventory_adjusted', actor, `${exists ? 'Updated' : 'Created'} ingredient ${ingredient.name}.`),
               ...current.activityLog,
             ],
           }))
