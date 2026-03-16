@@ -10,7 +10,7 @@ import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
 import { cn, currency } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
-import type { OrderItem } from '../types/domain'
+import type { Modifier, OrderItem } from '../types/domain'
 
 function getPaymentStatusFromQuery(value: string | null) {
   const normalized = value?.toLowerCase()
@@ -40,6 +40,7 @@ export function CustomerOrderPage() {
   const recipes = usePizzaOpsStore((state) => state.recipes)
   const inventory = usePizzaOpsStore((state) => state.inventory)
   const service = usePizzaOpsStore((state) => state.service)
+  const modifiers = usePizzaOpsStore((state) => state.modifiers)
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
@@ -48,6 +49,7 @@ export function CustomerOrderPage() {
   const [notes, setNotes] = useState('')
   const [basket, setBasket] = useState<OrderItem[]>([])
   const [selectedTime, setSelectedTime] = useState('')
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -85,6 +87,41 @@ export function CustomerOrderPage() {
       current
         .map((item) => (item.menuItemId === menuItemId ? { ...item, quantity } : item))
         .filter((item) => item.quantity > 0),
+    )
+  }
+
+  function getEligibleModifiers(menuItemId: string) {
+    const target = menuItems.find((entry) => entry.id === menuItemId)
+    return modifiers.filter((modifier) =>
+      modifier.appliesToAllPizzas
+        ? target?.category === 'pizza'
+        : modifier.menuItemIds.includes(menuItemId),
+    )
+  }
+
+  function toggleModifier(menuItemId: string, modifier: Modifier) {
+    setBasket((current) =>
+      current.map((item) => {
+        if (item.menuItemId !== menuItemId) {
+          return item
+        }
+
+        const existing = item.modifiers?.find((entry) => entry.modifierId === modifier.id)
+        return {
+          ...item,
+          modifiers: existing
+            ? item.modifiers?.filter((entry) => entry.modifierId !== modifier.id)
+            : [
+                ...(item.modifiers ?? []),
+                {
+                  modifierId: modifier.id,
+                  name: modifier.name,
+                  priceDelta: modifier.priceDelta,
+                  quantity: 1,
+                },
+              ],
+        }
+      }),
     )
   }
 
@@ -153,6 +190,11 @@ export function CustomerOrderPage() {
               Fresh wood-fired pizza. Pick your order, choose a collection slot, and pay
               online.
             </p>
+            {!service.acceptPublicOrders ? (
+              <p className="mt-3 rounded-2xl border border-rose-300/40 bg-rose-500/15 px-4 py-3 text-sm text-rose-100">
+                Public ordering is currently closed. {service.publicOrderClosureReason ?? 'Please check back later.'}
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-6">
             {menuItems.map((menuItem) => {
@@ -222,6 +264,11 @@ export function CustomerOrderPage() {
                       <div>
                         <p className="font-semibold">{menuItem.name}</p>
                         <p className="text-sm text-slate-500">{currency(menuItem.price)} each</p>
+                        {item.modifiers?.length ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            {item.modifiers.map((modifier) => modifier.name).join(', ')}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-2">
                         <Button
@@ -239,6 +286,11 @@ export function CustomerOrderPage() {
                         >
                           +
                         </Button>
+                        {getEligibleModifiers(item.menuItemId).length ? (
+                          <Button size="sm" variant="secondary" onClick={() => setExpandedItemId((current) => current === item.menuItemId ? null : item.menuItemId)}>
+                            Modify
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   )
@@ -249,6 +301,32 @@ export function CustomerOrderPage() {
                 </p>
               )}
             </div>
+            {basket.map((item) => {
+              const eligibleModifiers = getEligibleModifiers(item.menuItemId)
+              if (!eligibleModifiers.length || expandedItemId !== item.menuItemId) {
+                return null
+              }
+
+              return (
+                <div key={`${item.menuItemId}_mods`} className="mt-3 flex flex-wrap gap-2">
+                  {eligibleModifiers.map((modifier) => {
+                    const active = item.modifiers?.some((entry) => entry.modifierId === modifier.id)
+                    return (
+                      <button
+                        key={modifier.id}
+                        className={cn(
+                          'rounded-full border px-3 py-1 text-xs font-semibold',
+                          active ? 'border-orange-400 bg-orange-100 text-orange-700' : 'border-slate-300 bg-white text-slate-600',
+                        )}
+                        onClick={() => toggleModifier(item.menuItemId, modifier)}
+                      >
+                        {modifier.name} {modifier.priceDelta >= 0 ? '+' : ''}{currency(modifier.priceDelta)}
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })}
 
             <div className="mt-5 grid gap-3">
               <Input
@@ -309,9 +387,9 @@ export function CustomerOrderPage() {
                 className="mt-4 w-full bg-orange-500 text-white hover:bg-orange-400"
                 size="lg"
                 onClick={() => void handlePay()}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !service.acceptPublicOrders}
               >
-                {isSubmitting ? 'Starting secure checkout...' : 'Pay securely'}
+                {isSubmitting ? 'Starting secure checkout...' : service.acceptPublicOrders ? 'Pay securely' : 'Public ordering closed'}
               </Button>
               {message ? <p className="mt-3 text-sm text-orange-200">{message}</p> : null}
             </div>

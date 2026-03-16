@@ -5,17 +5,29 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
-import { getInventorySummary } from '../lib/slot-engine'
+import { generateServiceSlots, getAvailableSlots, getInventorySummary } from '../lib/slot-engine'
 import { formatDateTime, formatTime } from '../lib/time'
 import { cn, currency, titleCase } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
-import type { Modifier } from '../types/domain'
+import type { MenuItem, Modifier } from '../types/domain'
 
-function StatPanel({ icon: Icon, title, value, detail }: { icon: ComponentType<{ className?: string }>; title: string; value: string; detail: string }) {
+function StatPanel({
+  icon: Icon,
+  title,
+  value,
+  detail,
+}: {
+  icon: ComponentType<{ className?: string }>
+  title: string
+  value: string
+  detail: string
+}) {
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex items-start gap-3">
-        <div className="rounded-2xl bg-orange-100 p-3 text-orange-700"><Icon className="h-5 w-5" /></div>
+        <div className="rounded-2xl bg-orange-100 p-3 text-orange-700">
+          <Icon className="h-5 w-5" />
+        </div>
         <div>
           <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{title}</p>
           <p className="mt-1 text-2xl font-bold">{value}</p>
@@ -28,10 +40,12 @@ function StatPanel({ icon: Icon, title, value, detail }: { icon: ComponentType<{
 
 export function AdminPage() {
   const service = usePizzaOpsStore((state) => state.service)
+  const serviceLocations = usePizzaOpsStore((state) => state.serviceLocations)
   const orders = usePizzaOpsStore((state) => state.orders)
   const customers = usePizzaOpsStore((state) => state.customers)
   const ingredients = usePizzaOpsStore((state) => state.ingredients)
   const inventory = usePizzaOpsStore((state) => state.inventory)
+  const inventoryDefaults = usePizzaOpsStore((state) => state.inventoryDefaults)
   const recipes = usePizzaOpsStore((state) => state.recipes)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const modifiers = usePizzaOpsStore((state) => state.modifiers)
@@ -44,9 +58,13 @@ export function AdminPage() {
   const retryLoyverseSync = usePizzaOpsStore((state) => state.retryLoyverseSync)
   const resetDemo = usePizzaOpsStore((state) => state.resetDemo)
   const updateService = usePizzaOpsStore((state) => state.updateService)
+  const updateServiceLocations = usePizzaOpsStore((state) => state.updateServiceLocations)
   const createFreshService = usePizzaOpsStore((state) => state.createFreshService)
   const setInventoryQuantity = usePizzaOpsStore((state) => state.setInventoryQuantity)
   const adjustInventoryQuantity = usePizzaOpsStore((state) => state.adjustInventoryQuantity)
+  const setInventoryDefaultQuantity = usePizzaOpsStore((state) => state.setInventoryDefaultQuantity)
+  const applyInventoryDefaults = usePizzaOpsStore((state) => state.applyInventoryDefaults)
+  const upsertMenuItem = usePizzaOpsStore((state) => state.upsertMenuItem)
   const upsertModifier = usePizzaOpsStore((state) => state.upsertModifier)
   const deleteModifier = usePizzaOpsStore((state) => state.deleteModifier)
   const assignPager = usePizzaOpsStore((state) => state.assignPager)
@@ -59,29 +77,64 @@ export function AdminPage() {
   const [moveWarning, setMoveWarning] = useState<string | null>(null)
   const [pagerOrderId, setPagerOrderId] = useState(orders[0]?.id ?? '')
   const [pagerValue, setPagerValue] = useState('')
+  const [locationDraft, setLocationDraft] = useState('')
   const [serviceForm, setServiceForm] = useState({
     name: service.name,
+    locationName: service.locationName,
     date: service.date,
     status: service.status,
+    acceptPublicOrders: service.acceptPublicOrders,
+    publicOrderClosureReason: service.publicOrderClosureReason ?? '',
     startTime: service.startTime,
     endTime: service.endTime,
     lastCollectionTime: service.lastCollectionTime,
     slotSizeMinutes: service.slotSizeMinutes,
     pizzasPerSlot: service.pizzasPerSlot,
   })
+  const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>({
+    id: '',
+    name: '',
+    category: 'pizza',
+    price: 10,
+    loyverseItemId: '',
+    description: '',
+  })
+  const [menuRecipeDraft, setMenuRecipeDraft] = useState<Record<string, number>>({})
   const [modifierDraft, setModifierDraft] = useState<Modifier>({
     id: '',
     name: '',
     priceDelta: 1,
     menuItemIds: [],
+    appliesToAllPizzas: true,
   })
-  const inventorySummary = useMemo(() => getInventorySummary(inventory, recipes, menuItems, orders), [inventory, menuItems, orders, recipes])
+
+  const inventorySummary = useMemo(
+    () => getInventorySummary(inventory, recipes, menuItems, orders),
+    [inventory, menuItems, orders, recipes],
+  )
+  const moveTarget = useMemo(() => orders.find((entry) => entry.id === moveOrderId), [moveOrderId, orders])
+  const availableMoveSlots = useMemo(() => {
+    if (!moveTarget) {
+      return []
+    }
+
+    return getAvailableSlots(
+      service,
+      orders.filter((entry) => entry.id !== moveTarget.id),
+      moveTarget.items,
+      menuItems,
+    )
+  }, [menuItems, moveTarget, orders, service])
+  const fallbackMoveSlots = useMemo(() => generateServiceSlots(service), [service])
 
   useEffect(() => {
     setServiceForm({
       name: service.name,
+      locationName: service.locationName,
       date: service.date,
       status: service.status,
+      acceptPublicOrders: service.acceptPublicOrders,
+      publicOrderClosureReason: service.publicOrderClosureReason ?? '',
       startTime: service.startTime,
       endTime: service.endTime,
       lastCollectionTime: service.lastCollectionTime,
@@ -95,32 +148,160 @@ export function AdminPage() {
     setMoveWarning(result.warning ?? (result.ok ? 'Order moved.' : 'Unable to move order.'))
   }
 
+  function addLocationPreset() {
+    const next = locationDraft.trim()
+    if (!next) {
+      return
+    }
+
+    updateServiceLocations([...serviceLocations, next], 'manager')
+    setLocationDraft('')
+  }
+
+  function saveMenuItem() {
+    if (!menuItemDraft.name.trim()) {
+      return
+    }
+
+    const id =
+      menuItemDraft.id || `menu_${menuItemDraft.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`
+
+    upsertMenuItem(
+      {
+        ...menuItemDraft,
+        id,
+        loyverseItemId: menuItemDraft.loyverseItemId || `LOY-${id.toUpperCase()}`,
+      },
+      ingredients.map((ingredient) => ({
+        menuItemId: id,
+        ingredientId: ingredient.id,
+        quantity: Number(menuRecipeDraft[ingredient.id] ?? 0),
+      })),
+      'manager',
+    )
+
+    setMenuItemDraft({
+      id: '',
+      name: '',
+      category: 'pizza',
+      price: 10,
+      loyverseItemId: '',
+      description: '',
+    })
+    setMenuRecipeDraft({})
+  }
+
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="grid gap-4">
         <div className="grid gap-4 lg:grid-cols-3">
-          <StatPanel icon={AlarmClockCheck} title="Service Window" value={`${service.startTime}-${service.endTime}`} detail={`Last slot ${service.lastCollectionTime}`} />
-          <StatPanel icon={TimerReset} title="Delay" value={`${service.delayMinutes} mins`} detail={service.pausedUntil ? `Paused until ${formatTime(service.pausedUntil)}` : titleCase(service.status)} />
-          <StatPanel icon={CircleDollarSign} title="Payments" value={`${payments.filter((entry) => entry.status === 'paid').length} paid`} detail={`${payments.filter((entry) => entry.status === 'failed').length} failed`} />
+          <StatPanel
+            icon={AlarmClockCheck}
+            title="Service Window"
+            value={`${service.startTime}-${service.endTime}`}
+            detail={`${service.locationName} · Last slot ${service.lastCollectionTime}`}
+          />
+          <StatPanel
+            icon={TimerReset}
+            title="Delay"
+            value={`${service.delayMinutes} mins`}
+            detail={service.pausedUntil ? `Paused until ${formatTime(service.pausedUntil)}` : titleCase(service.status)}
+          />
+          <StatPanel
+            icon={CircleDollarSign}
+            title="Payments"
+            value={`${payments.filter((entry) => entry.status === 'paid').length} paid`}
+            detail={`${payments.filter((entry) => entry.status === 'failed').length} failed`}
+          />
         </div>
 
         <Card className="p-4 sm:p-5">
           <h2 className="font-display text-2xl font-bold">Service management</h2>
+          <p className="mt-2 text-sm text-slate-500">
+            Define the popup, operating window, and whether the public ordering page stays open.
+          </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Input value={serviceForm.name} onChange={(event) => setServiceForm((current) => ({ ...current, name: event.target.value }))} />
-            <Input type="date" value={serviceForm.date} onChange={(event) => setServiceForm((current) => ({ ...current, date: event.target.value }))} />
-            <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.status} onChange={(event) => setServiceForm((current) => ({ ...current, status: event.target.value as typeof service.status }))}>
-              {['draft', 'live', 'paused', 'closed'].map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}
-            </select>
-            <Input type="time" value={serviceForm.startTime} onChange={(event) => setServiceForm((current) => ({ ...current, startTime: event.target.value }))} />
-            <Input type="time" value={serviceForm.endTime} onChange={(event) => setServiceForm((current) => ({ ...current, endTime: event.target.value }))} />
-            <Input type="time" value={serviceForm.lastCollectionTime} onChange={(event) => setServiceForm((current) => ({ ...current, lastCollectionTime: event.target.value }))} />
-            <Input type="number" value={serviceForm.slotSizeMinutes} onChange={(event) => setServiceForm((current) => ({ ...current, slotSizeMinutes: Number(event.target.value) }))} />
-            <Input type="number" value={serviceForm.pizzasPerSlot} onChange={(event) => setServiceForm((current) => ({ ...current, pizzasPerSlot: Number(event.target.value) }))} />
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Service name</span>
+              <Input value={serviceForm.name} onChange={(event) => setServiceForm((current) => ({ ...current, name: event.target.value }))} />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Service date</span>
+              <Input type="date" value={serviceForm.date} onChange={(event) => setServiceForm((current) => ({ ...current, date: event.target.value }))} />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Popup location</span>
+              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.locationName} onChange={(event) => setServiceForm((current) => ({ ...current, locationName: event.target.value }))}>
+                {serviceLocations.map((location) => (
+                  <option key={location} value={location}>
+                    {location}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Service status</span>
+              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.status} onChange={(event) => setServiceForm((current) => ({ ...current, status: event.target.value as typeof service.status }))}>
+                {['draft', 'live', 'paused', 'closed'].map((status) => (
+                  <option key={status} value={status}>
+                    {titleCase(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Public ordering</span>
+              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.acceptPublicOrders ? 'open' : 'closed'} onChange={(event) => setServiceForm((current) => ({ ...current, acceptPublicOrders: event.target.value === 'open' }))}>
+                <option value="open">Open to public orders</option>
+                <option value="closed">Closed to new public orders</option>
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm sm:col-span-2">
+              <span className="font-semibold text-slate-600">Public closure message</span>
+              <Textarea placeholder="Example: oven breakdown, sold out, weather hold" value={serviceForm.publicOrderClosureReason} onChange={(event) => setServiceForm((current) => ({ ...current, publicOrderClosureReason: event.target.value }))} />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Start time</span>
+              <Input type="time" value={serviceForm.startTime} onChange={(event) => setServiceForm((current) => ({ ...current, startTime: event.target.value }))} />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">End time</span>
+              <Input type="time" value={serviceForm.endTime} onChange={(event) => setServiceForm((current) => ({ ...current, endTime: event.target.value }))} />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Last collection slot</span>
+              <Input type="time" value={serviceForm.lastCollectionTime} onChange={(event) => setServiceForm((current) => ({ ...current, lastCollectionTime: event.target.value }))} />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Slot size (minutes)</span>
+              <Input type="number" value={serviceForm.slotSizeMinutes} onChange={(event) => setServiceForm((current) => ({ ...current, slotSizeMinutes: Number(event.target.value) }))} />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-semibold text-slate-600">Pizzas per slot</span>
+              <Input type="number" value={serviceForm.pizzasPerSlot} onChange={(event) => setServiceForm((current) => ({ ...current, pizzasPerSlot: Number(event.target.value) }))} />
+            </label>
+          </div>
+          <div className="mt-4 rounded-2xl border border-slate-200 p-4">
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Popup list</p>
+            <div className="mt-3 flex gap-2">
+              <Input placeholder="Add popup location" value={locationDraft} onChange={(event) => setLocationDraft(event.target.value)} />
+              <Button onClick={addLocationPreset}>Add</Button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {serviceLocations.map((location) => (
+                <button key={location} className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700" onClick={() => updateServiceLocations(serviceLocations.filter((entry) => entry !== location), 'manager')}>
+                  Remove {location}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => updateService(serviceForm, 'manager')}>Save service</Button>
-            <Button variant="secondary" onClick={() => createFreshService(serviceForm, 'manager')}>Create fresh service</Button>
+            <Button onClick={() => updateService({ ...serviceForm, publicOrderClosureReason: serviceForm.acceptPublicOrders ? null : serviceForm.publicOrderClosureReason || 'Public ordering temporarily closed' }, 'manager')}>
+              Save service
+            </Button>
+            <Button variant="secondary" onClick={() => createFreshService(serviceForm, 'manager')}>
+              Create fresh service
+            </Button>
           </div>
         </Card>
 
@@ -131,13 +312,17 @@ export function AdminPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Pause service</p>
               <Input className="mt-3" type="number" value={pauseMinutes} onChange={(event) => setPauseMinutes(Number(event.target.value))} />
               <Textarea className="mt-3" placeholder="Reason" value={reason} onChange={(event) => setReason(event.target.value)} />
-              <Button className="mt-3 w-full" variant="warning" onClick={() => pauseService(pauseMinutes, 'manager', reason || 'Operational pause')}>Pause service and shift future orders</Button>
+              <Button className="mt-3 w-full" variant="warning" onClick={() => pauseService(pauseMinutes, 'manager', reason || 'Operational pause')}>
+                Pause service and shift future orders
+              </Button>
             </div>
             <div className="rounded-2xl border border-slate-200 p-4">
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Add delay</p>
               <Input className="mt-3" type="number" value={delayMinutes} onChange={(event) => setDelayMinutes(Number(event.target.value))} />
               <Textarea className="mt-3" placeholder="Reason" value={reason} onChange={(event) => setReason(event.target.value)} />
-              <Button className="mt-3 w-full" variant="secondary" onClick={() => addDelay(delayMinutes, 'manager', reason || 'Operational delay')}>Apply delay to future orders</Button>
+              <Button className="mt-3 w-full" variant="secondary" onClick={() => addDelay(delayMinutes, 'manager', reason || 'Operational delay')}>
+                Apply delay to future orders
+              </Button>
             </div>
           </div>
         </Card>
@@ -154,10 +339,20 @@ export function AdminPage() {
               }}>
                 {orders.filter((order) => order.status !== 'completed').map((order) => {
                   const customer = customers.find((entry) => entry.id === order.customerId)
-                  return <option key={order.id} value={order.id}>{order.reference} - {customer?.name ?? 'Unknown'}</option>
+                  return (
+                    <option key={order.id} value={order.id}>
+                      {order.reference} - {customer?.name ?? 'Unknown'}
+                    </option>
+                  )
                 })}
               </select>
-              <Input value={moveTime} onChange={(event) => setMoveTime(event.target.value)} />
+              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={moveTime} onChange={(event) => setMoveTime(event.target.value)}>
+                {(availableMoveSlots.length ? availableMoveSlots.map((slot) => slot.promisedTime) : fallbackMoveSlots).map((slot) => (
+                  <option key={slot} value={slot}>
+                    {formatTime(slot)}
+                  </option>
+                ))}
+              </select>
               <Textarea placeholder="Override reason" value={moveReason} onChange={(event) => setMoveReason(event.target.value)} />
               <div className="flex flex-wrap gap-2">
                 <Button variant="secondary" onClick={() => handleMove(false)}>Move with warnings</Button>
@@ -167,9 +362,14 @@ export function AdminPage() {
             </div>
             <div className="grid gap-3">
               <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={pagerOrderId} onChange={(event) => setPagerOrderId(event.target.value)}>
-                {orders.filter((order) => order.status !== 'completed').map((order) => (
-                  <option key={order.id} value={order.id}>{order.reference}</option>
-                ))}
+                {orders.filter((order) => order.status !== 'completed').map((order) => {
+                  const customer = customers.find((entry) => entry.id === order.customerId)
+                  return (
+                    <option key={order.id} value={order.id}>
+                      {order.reference} - {customer?.name ?? 'Unknown'}
+                    </option>
+                  )
+                })}
               </select>
               <Input placeholder="Pager number 1-40" value={pagerValue} onChange={(event) => setPagerValue(event.target.value)} />
               <div className="flex gap-2">
@@ -185,17 +385,21 @@ export function AdminPage() {
             <h2 className="font-display text-2xl font-bold">Inventory management</h2>
             <Badge variant="orange">Reserved / remaining</Badge>
           </div>
+          <p className="mt-2 text-sm text-slate-500">Current stock for this service only.</p>
           <div className="mt-4 space-y-3">
             {inventorySummary.map((entry) => {
               const ingredient = ingredients.find((item) => item.id === entry.ingredientId)
-              if (!ingredient) return null
+              if (!ingredient) {
+                return null
+              }
+
               return (
                 <div key={entry.ingredientId} className="rounded-2xl border border-slate-200 p-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-semibold">{ingredient.name}</p>
                       <p className="text-sm text-slate-500">
-                        Reserved {entry.committed} {ingredient.unit} • Remaining {entry.remaining} {ingredient.unit}
+                        Reserved {entry.committed} {ingredient.unit} · Remaining {entry.remaining} {ingredient.unit}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -209,14 +413,69 @@ export function AdminPage() {
             })}
           </div>
         </Card>
+
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-display text-2xl font-bold">Default service inventory</h2>
+              <p className="mt-1 text-sm text-slate-500">Standard van load-out used when opening a fresh service.</p>
+            </div>
+            <Button variant="secondary" onClick={() => applyInventoryDefaults('manager')}>Apply defaults to service</Button>
+          </div>
+          <div className="mt-4 space-y-3">
+            {inventoryDefaults.map((entry) => {
+              const ingredient = ingredients.find((item) => item.id === entry.ingredientId)
+              return (
+                <div key={entry.ingredientId} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
+                  <div>
+                    <p className="font-semibold">{ingredient?.name ?? entry.ingredientId}</p>
+                    <p className="text-sm text-slate-500">Editable default amount</p>
+                  </div>
+                  <Input className="w-28 text-center" type="number" value={entry.quantity} onChange={(event) => setInventoryDefaultQuantity(entry.ingredientId, Number(event.target.value), 'manager')} />
+                </div>
+              )
+            })}
+          </div>
+        </Card>
       </div>
 
       <div className="grid gap-4">
         <Card className="p-4 sm:p-5">
+          <h2 className="font-display text-2xl font-bold">Pizza menu builder</h2>
+          <p className="mt-2 text-sm text-slate-500">Build menu items from the ingredients you stock.</p>
+          <div className="mt-4 grid gap-3">
+            <Input placeholder="Menu item name" value={menuItemDraft.name} onChange={(event) => setMenuItemDraft((current) => ({ ...current, id: current.id || `menu_${event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`, name: event.target.value }))} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={menuItemDraft.category} onChange={(event) => setMenuItemDraft((current) => ({ ...current, category: event.target.value as MenuItem['category'] }))}>
+                <option value="pizza">Pizza</option>
+                <option value="side">Side</option>
+              </select>
+              <Input type="number" value={menuItemDraft.price} onChange={(event) => setMenuItemDraft((current) => ({ ...current, price: Number(event.target.value) }))} />
+            </div>
+            <Input placeholder="Loyverse item ID (optional)" value={menuItemDraft.loyverseItemId} onChange={(event) => setMenuItemDraft((current) => ({ ...current, loyverseItemId: event.target.value }))} />
+            <Textarea placeholder="Description" value={menuItemDraft.description} onChange={(event) => setMenuItemDraft((current) => ({ ...current, description: event.target.value }))} />
+            <div className="grid gap-3">
+              {ingredients.map((ingredient) => (
+                <label key={ingredient.id} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                  <span>{ingredient.name}</span>
+                  <Input className="w-24 text-center" type="number" value={menuRecipeDraft[ingredient.id] ?? 0} onChange={(event) => setMenuRecipeDraft((current) => ({ ...current, [ingredient.id]: Number(event.target.value) }))} />
+                </label>
+              ))}
+            </div>
+            <Button onClick={saveMenuItem}>Save menu item</Button>
+          </div>
+        </Card>
+
+        <Card className="p-4 sm:p-5">
           <h2 className="font-display text-2xl font-bold">Modifiers</h2>
+          <p className="mt-2 text-sm text-slate-500">Create add/remove options. Leave the item list empty to make it available on all pizzas.</p>
           <div className="mt-4 grid gap-3">
             <Input placeholder="Modifier name" value={modifierDraft.name} onChange={(event) => setModifierDraft((current) => ({ ...current, id: current.id || `mod_${event.target.value.toLowerCase().replace(/\s+/g, '_')}`, name: event.target.value }))} />
             <Input type="number" placeholder="Price delta" value={modifierDraft.priceDelta} onChange={(event) => setModifierDraft((current) => ({ ...current, priceDelta: Number(event.target.value) }))} />
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+              <input type="checkbox" checked={modifierDraft.appliesToAllPizzas ?? false} onChange={(event) => setModifierDraft((current) => ({ ...current, appliesToAllPizzas: event.target.checked, menuItemIds: event.target.checked ? [] : current.menuItemIds }))} />
+              Available on all pizzas
+            </label>
             <div className="flex flex-wrap gap-2">
               {menuItems.map((item) => {
                 const active = modifierDraft.menuItemIds.includes(item.id)
@@ -224,7 +483,7 @@ export function AdminPage() {
                   <button key={item.id} className={cn('rounded-full border px-3 py-1 text-xs font-semibold', active ? 'border-orange-400 bg-orange-100 text-orange-700' : 'border-slate-300 bg-white text-slate-600')} onClick={() => setModifierDraft((current) => ({
                     ...current,
                     menuItemIds: active ? current.menuItemIds.filter((id) => id !== item.id) : [...current.menuItemIds, item.id],
-                  }))}>
+                  }))} disabled={modifierDraft.appliesToAllPizzas}>
                     {item.name}
                   </button>
                 )
@@ -232,15 +491,19 @@ export function AdminPage() {
             </div>
             <Button onClick={() => {
               upsertModifier(modifierDraft, 'manager')
-              setModifierDraft({ id: '', name: '', priceDelta: 1, menuItemIds: [] })
-            }}>Save modifier</Button>
+              setModifierDraft({ id: '', name: '', priceDelta: 1, menuItemIds: [], appliesToAllPizzas: true })
+            }}>
+              Save modifier
+            </Button>
           </div>
           <div className="mt-4 space-y-2">
             {modifiers.map((modifier) => (
               <div key={modifier.id} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2">
                 <div>
                   <p className="font-semibold">{modifier.name}</p>
-                  <p className="text-sm text-slate-500">+{currency(modifier.priceDelta)} • {modifier.menuItemIds.length} menu items</p>
+                  <p className="text-sm text-slate-500">
+                    {modifier.priceDelta >= 0 ? '+' : ''}{currency(modifier.priceDelta)} · {modifier.appliesToAllPizzas ? 'All pizzas' : `${modifier.menuItemIds.length} menu items`}
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={() => setModifierDraft(modifier)}>Edit</Button>
@@ -261,10 +524,16 @@ export function AdminPage() {
               <div key={entry.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold">{entry.orderId}</p>
-                  <Badge variant={entry.status === 'failed' ? 'red' : entry.status === 'synced' ? 'green' : 'amber'}>{entry.status}</Badge>
+                  <Badge variant={entry.status === 'failed' ? 'red' : entry.status === 'synced' ? 'green' : 'amber'}>
+                    {entry.status}
+                  </Badge>
                 </div>
-                <p className="mt-1 text-sm text-slate-500">Attempts {entry.attempts} {entry.lastError ? `• ${entry.lastError}` : ''}</p>
-                <Button className="mt-3" size="sm" variant="secondary" onClick={() => retryLoyverseSync(entry.id)}>Retry sync</Button>
+                <p className="mt-1 text-sm text-slate-500">
+                  Attempts {entry.attempts} {entry.lastError ? `· ${entry.lastError}` : ''}
+                </p>
+                <Button className="mt-3" size="sm" variant="secondary" onClick={() => retryLoyverseSync(entry.id)}>
+                  Retry sync
+                </Button>
               </div>
             ))}
           </div>

@@ -49,6 +49,7 @@ export function OrderEntryPage() {
   const [notes, setNotes] = useState('')
   const [basket, setBasket] = useState<OrderItem[]>([])
   const [selectedTime, setSelectedTime] = useState('')
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null)
   const [pagerNumber, setPagerNumber] = useState<string>('')
   const [message, setMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -111,6 +112,15 @@ export function OrderEntryPage() {
               ],
         }
       }),
+    )
+  }
+
+  function getEligibleModifiers(menuItemId: string) {
+    const target = menuItems.find((entry) => entry.id === menuItemId)
+    return modifiers.filter((modifier) =>
+      modifier.appliesToAllPizzas
+        ? target?.category === 'pizza'
+        : modifier.menuItemIds.includes(menuItemId),
     )
   }
 
@@ -240,22 +250,30 @@ export function OrderEntryPage() {
         <div className="mt-5 space-y-3">
           {basket.length ? basket.map((item) => {
             const menuItem = menuItems.find((entry) => entry.id === item.menuItemId)
-            const eligibleModifiers = modifiers.filter((modifier) => modifier.menuItemIds.includes(item.menuItemId))
+            const eligibleModifiers = getEligibleModifiers(item.menuItemId)
             if (!menuItem) return null
             return (
               <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="font-semibold">{menuItem.name}</p>
                     <p className="text-sm text-slate-500">{currency(menuItem.price)} each</p>
+                    {item.modifiers?.length ? (
+                      <p className="mt-1 text-xs text-slate-500">{item.modifiers.map((modifier) => modifier.name).join(', ')}</p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button size="sm" variant="outline" onClick={() => updateQuantity(item.id, item.quantity - 1)}>-</Button>
                     <span className="w-6 text-center font-semibold">{item.quantity}</span>
                     <Button size="sm" variant="outline" onClick={() => updateQuantity(item.id, item.quantity + 1)}>+</Button>
+                    {eligibleModifiers.length ? (
+                      <Button size="sm" variant="secondary" onClick={() => setExpandedItemId((current) => current === item.id ? null : item.id)}>
+                        Modify
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
-                {eligibleModifiers.length ? (
+                {eligibleModifiers.length && expandedItemId === item.id ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {eligibleModifiers.map((modifier) => {
                       const active = item.modifiers?.some((entry) => entry.modifierId === modifier.id)
@@ -268,7 +286,7 @@ export function OrderEntryPage() {
                           )}
                           onClick={() => toggleModifier(item.id, modifier)}
                         >
-                          {modifier.name} +{currency(modifier.priceDelta)}
+                          {modifier.name} {modifier.priceDelta >= 0 ? '+' : ''}{currency(modifier.priceDelta)}
                         </button>
                       )
                     })}

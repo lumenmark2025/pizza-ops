@@ -4,8 +4,11 @@ export const seedSnapshot: ServiceSnapshot = {
   service: {
     id: 'service_bolton',
     name: 'Bolton-le-Sands Public Service',
+    locationName: 'Bolton-le-Sands Public Service',
     date: serviceDate,
     status: 'live',
+    acceptPublicOrders: true,
+    publicOrderClosureReason: null,
     startTime: '17:00',
     endTime: '20:00',
     lastCollectionTime: '19:55',
@@ -15,6 +18,12 @@ export const seedSnapshot: ServiceSnapshot = {
     pausedUntil: null,
     pauseReason: null,
   },
+  serviceLocations: [
+    'Bolton-le-Sands Public Service',
+    'Carnforth Market',
+    'Lancaster Brewery',
+    'Morecambe Festival',
+  ],
   ingredients: [
     { id: 'dough_ball', name: 'Dough Ball', unit: 'ball', lowStockThreshold: 12 },
     { id: 'mozzarella', name: 'Mozzarella', unit: 'g', lowStockThreshold: 1200 },
@@ -92,18 +101,38 @@ export const seedSnapshot: ServiceSnapshot = {
     { ingredientId: 'parmesan', quantity: 1400 },
     { ingredientId: 'garlic_butter', quantity: 900 },
   ],
+  inventoryDefaults: [
+    { ingredientId: 'dough_ball', quantity: 80 },
+    { ingredientId: 'mozzarella', quantity: 9000 },
+    { ingredientId: 'tomato_sauce', quantity: 7000 },
+    { ingredientId: 'pepperoni', quantity: 2500 },
+    { ingredientId: 'nduja', quantity: 1100 },
+    { ingredientId: 'hot_honey', quantity: 1300 },
+    { ingredientId: 'basil', quantity: 260 },
+    { ingredientId: 'parmesan', quantity: 1400 },
+    { ingredientId: 'garlic_butter', quantity: 900 },
+  ],
   modifiers: [
     {
       id: 'mod_extra_cheese',
       name: 'Extra Cheese',
       priceDelta: 1.5,
       menuItemIds: ['margherita', 'pepperoni', 'nduja_hot_honey'],
+      appliesToAllPizzas: true,
     },
     {
       id: 'mod_extra_pepperoni',
       name: 'Extra Pepperoni',
       priceDelta: 2,
       menuItemIds: ['pepperoni'],
+      appliesToAllPizzas: false,
+    },
+    {
+      id: 'mod_no_cheese',
+      name: 'No Cheese',
+      priceDelta: -1,
+      menuItemIds: ['margherita', 'pepperoni', 'nduja_hot_honey'],
+      appliesToAllPizzas: true,
     },
   ],
   customers: [

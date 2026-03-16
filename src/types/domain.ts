@@ -13,8 +13,11 @@ export type SyncStatus = 'pending' | 'processing' | 'synced' | 'failed'
 export type ServiceConfig = {
   id: string
   name: string
+  locationName: string
   date: string
   status: 'draft' | 'live' | 'paused' | 'closed'
+  acceptPublicOrders: boolean
+  publicOrderClosureReason: string | null
   startTime: string
   endTime: string
   lastCollectionTime: string
@@ -57,6 +60,7 @@ export type Modifier = {
   name: string
   priceDelta: number
   menuItemIds: string[]
+  appliesToAllPizzas?: boolean
 }
 
 export type OrderItemModifier = {
@@ -180,10 +184,12 @@ export type SlotAvailability = {
 
 export type ServiceSnapshot = {
   service: ServiceConfig
+  serviceLocations: string[]
   ingredients: Ingredient[]
   menuItems: MenuItem[]
   recipes: MenuItemRecipe[]
   inventory: ServiceInventory[]
+  inventoryDefaults: ServiceInventory[]
   modifiers: Modifier[]
   customers: Customer[]
   orders: Order[]
