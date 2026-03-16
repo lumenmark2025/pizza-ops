@@ -83,6 +83,9 @@ const SNAPSHOT_KEYS = [
 
 let applyingRemoteSnapshot = false
 let stopRealtimeSubscription: null | (() => void) = null
+let hydrateRemotePromise: Promise<void> | null = null
+let activeRealtimeServiceId: string | null = null
+let snapshotPersistTimer: ReturnType<typeof setTimeout> | null = null
 
 const statusTimestampField: Record<OrderStatus, keyof Order['timestamps']> = {
   taken: 'taken_at',
@@ -330,11 +333,18 @@ async function mirrorOrderToSupabase(order: Order) {
 }
 
 function queueSnapshotSync(snapshot: ServiceSnapshot) {
-  if (applyingRemoteSnapshot || !canUseRealtimeSync()) {
+  if (applyingRemoteSnapshot || !canUseRealtimeSync() || !usePizzaOpsStore.getState().remoteReady) {
     return
   }
 
-  void persistRemoteSnapshot(snapshot)
+  if (snapshotPersistTimer) {
+    clearTimeout(snapshotPersistTimer)
+  }
+
+  snapshotPersistTimer = setTimeout(() => {
+    console.info('[pizza-ops] queueSnapshotSync flush', snapshot.service.id)
+    void persistRemoteSnapshot(snapshot)
+  }, 150)
 }
 
 export const usePizzaOpsStore = create<StoreState>()(
@@ -359,43 +369,73 @@ export const usePizzaOpsStore = create<StoreState>()(
         remoteReady: false,
         setOnlineStatus: (status) => set({ isOnline: status }),
         hydrateRemote: async () => {
-          if (!canUseRealtimeSync()) {
+          if (hydrateRemotePromise) {
+            return hydrateRemotePromise
+          }
+
+          hydrateRemotePromise = (async () => {
+            console.info('[pizza-ops] hydrateRemote invoked')
+            if (!canUseRealtimeSync()) {
+              set({ remoteReady: true })
+              return
+            }
+
+            const current = getPersistableSnapshot(get())
+            const remote = await loadRemoteSnapshot(current.service.id)
+            if (remote) {
+              const localSnapshot = getPersistableSnapshot(get())
+              const remoteJson = JSON.stringify(remote)
+              const localJson = JSON.stringify(localSnapshot)
+
+              if (remoteJson !== localJson) {
+                applyingRemoteSnapshot = true
+                set({ ...remote, remoteReady: true })
+                applyingRemoteSnapshot = false
+              } else {
+                set({ remoteReady: true })
+              }
+              return
+            }
+
+            await persistRemoteSnapshot(current)
             set({ remoteReady: true })
-            return
-          }
+          })().finally(() => {
+            hydrateRemotePromise = null
+          })
 
-          const current = getPersistableSnapshot(get())
-          const remote = await loadRemoteSnapshot(current.service.id)
-          if (remote) {
-            applyingRemoteSnapshot = true
-            set({ ...remote, remoteReady: true })
-            applyingRemoteSnapshot = false
-            return
-          }
-
-          await persistRemoteSnapshot(current)
-          set({ remoteReady: true })
+          return hydrateRemotePromise
         },
         startRealtime: () => {
           if (!canUseRealtimeSync()) {
             return null
           }
 
-          stopRealtimeSubscription?.()
           const serviceId = get().service.id
+          if (stopRealtimeSubscription && activeRealtimeServiceId === serviceId) {
+            console.info('[pizza-ops] startRealtime skipped duplicate', serviceId)
+            return stopRealtimeSubscription
+          }
+
+          stopRealtimeSubscription?.()
+          activeRealtimeServiceId = serviceId
           const stop = subscribeToRemoteSnapshot(serviceId, (snapshot) => {
+            const currentSnapshot = getPersistableSnapshot(get())
+            if (JSON.stringify(currentSnapshot) === JSON.stringify(snapshot)) {
+              return
+            }
+
             applyingRemoteSnapshot = true
-            set({
-              ...snapshot,
-              activityLog: [
-                createActivity('realtime_synced', 'supabase', 'Remote state synced.'),
-                ...snapshot.activityLog,
-              ],
-            })
+            set({ ...snapshot })
             applyingRemoteSnapshot = false
           })
           stopRealtimeSubscription = stop
-          return stop
+          return () => {
+            stop?.()
+            if (activeRealtimeServiceId === serviceId) {
+              activeRealtimeServiceId = null
+              stopRealtimeSubscription = null
+            }
+          }
         },
         getAvailableTimes: (items) => {
           const state = get()

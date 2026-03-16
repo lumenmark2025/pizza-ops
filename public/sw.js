@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pizza-ops-shell-v2'
+const CACHE_NAME = 'pizza-ops-shell-v3'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
@@ -19,7 +19,8 @@ self.addEventListener('fetch', (event) => {
   if (
     event.request.method !== 'GET' ||
     !['http:', 'https:'].includes(requestUrl.protocol) ||
-    requestUrl.origin !== self.location.origin
+    requestUrl.origin !== self.location.origin ||
+    ['chrome-extension:', 'moz-extension:', 'ws:', 'wss:'].includes(requestUrl.protocol)
   ) {
     return
   }

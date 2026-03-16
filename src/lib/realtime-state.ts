@@ -13,6 +13,8 @@ export async function loadRemoteSnapshot(serviceId: string) {
     return null
   }
 
+  console.info('[pizza-ops] loadRemoteSnapshot', serviceId)
+
   const { data, error } = await supabase
     .from(TABLE)
     .select('state')
@@ -31,6 +33,8 @@ export async function persistRemoteSnapshot(snapshot: ServiceSnapshot) {
   if (!supabase) {
     return
   }
+
+  console.info('[pizza-ops] persistRemoteSnapshot', snapshot.service.id)
 
   const { error } = await supabase.from(TABLE).upsert({
     service_id: snapshot.service.id,
@@ -51,6 +55,8 @@ export function subscribeToRemoteSnapshot(
     return null
   }
 
+  console.info('[pizza-ops] startRealtime', serviceId)
+
   const channel: RealtimeChannel = supabase
     .channel(`service-runtime-${serviceId}`)
     .on(
@@ -64,6 +70,7 @@ export function subscribeToRemoteSnapshot(
       (payload) => {
         const state = payload.new && 'state' in payload.new ? payload.new.state : null
         if (state) {
+          console.info('[pizza-ops] realtime snapshot apply', serviceId)
           onSnapshot(state as ServiceSnapshot)
         }
       },

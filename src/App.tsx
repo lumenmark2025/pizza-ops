@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { CustomerOrderConfirmationPage, CustomerOrderPage } from './features/customer-ordering'
 import { AdminPage } from './features/admin-ops'
@@ -11,6 +11,7 @@ function App() {
   const setOnlineStatus = usePizzaOpsStore((state) => state.setOnlineStatus)
   const hydrateRemote = usePizzaOpsStore((state) => state.hydrateRemote)
   const startRealtime = usePizzaOpsStore((state) => state.startRealtime)
+  const bootstrapStartedRef = useRef(false)
 
   useEffect(() => {
     const onOnline = () => setOnlineStatus(true)
@@ -24,8 +25,15 @@ function App() {
   }, [setOnlineStatus])
 
   useEffect(() => {
+    if (bootstrapStartedRef.current) {
+      return
+    }
+
+    bootstrapStartedRef.current = true
     let stop: null | (() => void) = null
+    console.info('[pizza-ops] hydration start')
     void hydrateRemote().then(() => {
+      console.info('[pizza-ops] hydration complete')
       stop = startRealtime()
     })
 
