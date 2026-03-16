@@ -1,16 +1,42 @@
-const sumupCheckoutUrl = import.meta.env.VITE_SUMUP_CHECKOUT_URL
-const sumupMerchantCode = import.meta.env.VITE_SUMUP_MERCHANT_CODE
+export type HostedCheckoutResponse = {
+  checkoutId: string
+  hostedCheckoutUrl: string
+  status: string
+}
 
-export function createSumUpCheckoutLink(paymentId: string, amount: number) {
-  if (sumupCheckoutUrl && sumupMerchantCode) {
-    const search = new URLSearchParams({
-      checkout_reference: paymentId,
-      amount: amount.toFixed(2),
-      merchant_code: sumupMerchantCode,
-    })
+export async function createHostedSumUpCheckout(input: {
+  orderId: string
+  amount: number
+  description: string
+}) {
+  const response = await fetch('/api/create-sumup-checkout', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  })
 
-    return `${sumupCheckoutUrl}?${search.toString()}`
+  const data = (await response.json()) as
+    | HostedCheckoutResponse
+    | { error?: string; details?: unknown }
+
+  if (!response.ok) {
+    const message =
+      'error' in data && typeof data.error === 'string'
+        ? data.error
+        : 'Unable to start SumUp checkout.'
+    throw new Error(message)
   }
 
-  return `/payments/${paymentId}`
+  if (
+    !('checkoutId' in data) ||
+    !data.checkoutId ||
+    !('hostedCheckoutUrl' in data) ||
+    !data.hostedCheckoutUrl
+  ) {
+    throw new Error('SumUp checkout response was missing hosted checkout details.')
+  }
+
+  return data
 }

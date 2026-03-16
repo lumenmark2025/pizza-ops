@@ -20,7 +20,6 @@ import {
   Route,
   Routes,
   useLocation,
-  useNavigate,
   useParams,
 } from 'react-router-dom'
 import { Badge } from './components/ui/badge'
@@ -29,6 +28,7 @@ import { Card } from './components/ui/card'
 import { Input } from './components/ui/input'
 import { Textarea } from './components/ui/textarea'
 import { getInventorySummary, getMenuAvailability } from './lib/slot-engine'
+import { createHostedSumUpCheckout } from './integrations/sumup'
 import { formatDateTime, formatTime } from './lib/time'
 import { cn, currency, titleCase } from './lib/utils'
 import { usePizzaOpsStore } from './store/usePizzaOpsStore'
@@ -134,13 +134,13 @@ function AppFrame() {
 }
 
 function OrderEntryPage() {
-  const navigate = useNavigate()
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const orders = usePizzaOpsStore((state) => state.orders)
   const recipes = usePizzaOpsStore((state) => state.recipes)
   const inventory = usePizzaOpsStore((state) => state.inventory)
   const service = usePizzaOpsStore((state) => state.service)
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
+  const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
   const [customerName, setCustomerName] = useState('')
   const [mobile, setMobile] = useState('')
@@ -150,6 +150,7 @@ function OrderEntryPage() {
   const [basket, setBasket] = useState<OrderItem[]>([])
   const [selectedTime, setSelectedTime] = useState('')
   const [message, setMessage] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const availability = useMemo(
     () => getMenuAvailability(inventory, recipes, menuItems, orders),
@@ -184,7 +185,7 @@ function OrderEntryPage() {
     )
   }
 
-  function submitOrder() {
+  async function submitOrder() {
     if (!customerName.trim()) {
       setMessage('Customer name is required.')
       return
@@ -194,10 +195,46 @@ function OrderEntryPage() {
       return
     }
 
+    setIsSubmitting(true)
+    setMessage(null)
+
     const result = createOrder({ customerName, mobile, source, promisedTime: selectedTime, items: basket, paymentMethod, notes })
     if (!result.ok) {
       setMessage(result.error)
+      setIsSubmitting(false)
       return
+    }
+
+    if (paymentMethod === 'sumup_online' && result.paymentId) {
+      try {
+        const checkout = await createHostedSumUpCheckout({
+          orderId: result.orderId,
+          amount: total,
+          description: `${service.name} order for ${customerName}`,
+        })
+
+        updatePaymentCheckout(result.paymentId, {
+          providerReference: checkout.checkoutId,
+          checkoutUrl: checkout.hostedCheckoutUrl,
+          status: 'pending',
+        })
+
+        setBasket([])
+        setCustomerName('')
+        setMobile('')
+        setNotes('')
+        window.location.assign(checkout.hostedCheckoutUrl)
+        return
+      } catch (error) {
+        const nextMessage =
+          error instanceof Error
+            ? error.message
+            : 'Unable to start SumUp checkout. The order is still saved and the basket has been kept.'
+
+        setMessage(`${nextMessage} The order is saved; you can retry payment from the same basket.`)
+        setIsSubmitting(false)
+        return
+      }
     }
 
     setMessage(`Order created for ${formatTime(selectedTime)}.`)
@@ -205,9 +242,7 @@ function OrderEntryPage() {
     setCustomerName('')
     setMobile('')
     setNotes('')
-    if (result.paymentId) {
-      navigate(`/payments/${result.paymentId}`)
-    }
+    setIsSubmitting(false)
   }
 
   return (
@@ -302,7 +337,13 @@ function OrderEntryPage() {
                 : 'Add a pizza to load valid collection times.'}
             </p>
           ) : null}
-          <Button className="mt-4 w-full" size="lg" onClick={submitOrder}>Place order</Button>
+          <Button className="mt-4 w-full" size="lg" onClick={() => void submitOrder()} disabled={isSubmitting}>
+            {isSubmitting
+              ? 'Starting checkout...'
+              : paymentMethod === 'sumup_online'
+                ? 'Pay with SumUp'
+                : 'Place order'}
+          </Button>
           {message ? <p className="mt-3 text-sm text-orange-200">{message}</p> : null}
         </div>
       </Card>
@@ -546,11 +587,23 @@ function AdminPage() {
 
 function PaymentPage() {
   const { paymentId } = useParams()
-  const navigate = useNavigate()
   const payments = usePizzaOpsStore((state) => state.payments)
   const updatePaymentStatus = usePizzaOpsStore((state) => state.updatePaymentStatus)
   const payment = payments.find((entry) => entry.id === paymentId)
   if (!payment) return <Navigate to="/" replace />
+
+  const statusTone =
+    payment.status === 'paid'
+      ? 'text-emerald-300'
+      : payment.status === 'failed'
+        ? 'text-rose-300'
+        : 'text-amber-300'
+  const statusLabel =
+    payment.status === 'paid'
+      ? 'Payment success'
+      : payment.status === 'failed'
+        ? 'Payment failed'
+        : 'Payment pending'
 
   return (
     <Card className="mx-auto max-w-2xl p-6">
@@ -566,11 +619,14 @@ function PaymentPage() {
         <p className="text-sm uppercase tracking-[0.2em] text-slate-300">Payment reference</p>
         <p className="mt-1 text-2xl font-bold">{payment.providerReference}</p>
         <p className="mt-2 text-slate-300">{currency(payment.amount)}</p>
+        <p className={cn('mt-3 text-sm font-semibold uppercase tracking-[0.2em]', statusTone)}>
+          {statusLabel}
+        </p>
       </div>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="success" onClick={() => updatePaymentStatus(payment.id, 'paid')}>Simulate payment success</Button>
         <Button variant="danger" onClick={() => updatePaymentStatus(payment.id, 'failed')}>Simulate payment failure</Button>
-        <Button variant="secondary" onClick={() => navigate('/')}>Back to order entry</Button>
+        <Button variant="secondary" onClick={() => window.location.assign('/')}>Back to order entry</Button>
       </div>
     </Card>
   )

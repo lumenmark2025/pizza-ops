@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { seedSnapshot } from '../data/seed'
-import { createSumUpCheckoutLink } from '../integrations/sumup'
 import { buildLoyversePayload } from '../integrations/loyverse'
 import { allocateAcrossSlots, getAvailableSlots } from '../lib/slot-engine'
 import { supabase } from '../lib/supabase'
@@ -39,6 +38,7 @@ type StoreState = ServiceSnapshot & {
   addDelay: (minutes: number, actor: string, reason: string) => void
   pauseService: (minutes: number, actor: string, reason: string) => void
   updatePaymentStatus: (paymentId: string, status: PaymentStatus) => void
+  updatePaymentCheckout: (paymentId: string, updates: { providerReference?: string; checkoutUrl?: string; status?: PaymentStatus }) => void
   retryLoyverseSync: (queueId: string) => void
   getAvailableTimes: (items: OrderItem[]) => ReturnType<typeof getAvailableSlots>
   resetDemo: () => void
@@ -323,11 +323,8 @@ export const usePizzaOpsStore = create<StoreState>()(
           status: paymentStatus,
           amount: totalAmount,
           providerReference:
-            input.paymentMethod === 'sumup_online' ? `SUMUP-${order.reference}` : `LOCAL-${order.reference}`,
-          checkoutUrl:
-            input.paymentMethod === 'sumup_online'
-              ? createSumUpCheckoutLink(paymentId, totalAmount)
-              : undefined,
+            input.paymentMethod === 'sumup_online' ? paymentId : `LOCAL-${order.reference}`,
+          checkoutUrl: input.paymentMethod === 'sumup_online' ? `/payments/${paymentId}` : undefined,
           createdAt: now,
           updatedAt: now,
         }
@@ -506,6 +503,41 @@ export const usePizzaOpsStore = create<StoreState>()(
               'payment_updated',
               'payments',
               `Payment ${payment.providerReference} updated to ${status}.`,
+              payment.orderId,
+            ),
+            ...state.activityLog,
+          ],
+        })
+      },
+      updatePaymentCheckout: (paymentId, updates) => {
+        const state = get()
+        const payment = state.payments.find((entry) => entry.id === paymentId)
+        if (!payment) {
+          return
+        }
+
+        const nextStatus = updates.status ?? payment.status
+
+        set({
+          payments: state.payments.map((entry) =>
+            entry.id === paymentId
+              ? {
+                  ...entry,
+                  providerReference: updates.providerReference ?? entry.providerReference,
+                  checkoutUrl: updates.checkoutUrl ?? entry.checkoutUrl,
+                  status: nextStatus,
+                  updatedAt: toIsoNow(),
+                }
+              : entry,
+          ),
+          orders: state.orders.map((entry) =>
+            entry.id === payment.orderId ? { ...entry, paymentStatus: nextStatus } : entry,
+          ),
+          activityLog: [
+            createActivity(
+              'payment_updated',
+              'payments',
+              `Payment ${paymentId} checkout session updated.`,
               payment.orderId,
             ),
             ...state.activityLog,
