@@ -72,6 +72,9 @@ export type Modifier = {
   id: string
   name: string
   priceDelta: number
+  stockIngredientId?: string | null
+  stockQuantity?: number
+  maxPerPizza?: number
   menuItemIds: string[]
   appliesToAllPizzas?: boolean
 }

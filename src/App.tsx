@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
-import { CustomerOrderConfirmationPage, CustomerOrderPage } from './features/customer-ordering'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import {
+  CustomerCheckoutPage,
+  CustomerLocationPage,
+  CustomerOrderConfirmationPage,
+  CustomerOrderPage,
+  CustomerServicePage,
+} from './features/customer-ordering'
 import { AdminPage } from './features/admin-ops'
 import { IngredientsAdminPage } from './features/ingredient-management'
 import { LocationEditPage, LocationNewPage, LocationsListPage } from './features/location-management'
@@ -14,6 +20,7 @@ import { SAFE_MODE } from './lib/runtime-flags'
 import { usePizzaOpsStore } from './store/usePizzaOpsStore'
 
 function App() {
+  const location = useLocation()
   const setOnlineStatus = usePizzaOpsStore((state) => state.setOnlineStatus)
   const bootstrapStartedRef = useRef(false)
 
@@ -55,30 +62,33 @@ function App() {
     }
   }, [])
 
-  return (
-    <AppShell>
-      <Routes>
-        <Route path="/" element={<OrderEntryPage />} />
-        <Route path="/order" element={<CustomerOrderPage />} />
-        <Route path="/order/confirmation/:orderId" element={<CustomerOrderConfirmationPage />} />
-        <Route path="/kds" element={<KdsPage />} />
-        <Route path="/expeditor" element={<ExpeditorPage />} />
-        <Route path="/board" element={<CustomerBoardPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/admin/locations" element={<LocationsListPage />} />
-        <Route path="/admin/locations/new" element={<LocationNewPage />} />
-        <Route path="/admin/locations/:locationId" element={<LocationEditPage />} />
-        <Route path="/admin/services" element={<ServicesListPage />} />
-        <Route path="/admin/services/new" element={<ServiceNewPage />} />
-        <Route path="/admin/services/:serviceId" element={<ServiceEditPage />} />
-        <Route path="/admin/menu" element={<MenuAdminPage />} />
-        <Route path="/admin/ingredients" element={<IngredientsAdminPage />} />
-        <Route path="/admin/modifiers" element={<ModifiersAdminPage />} />
-        <Route path="/payments/:paymentId" element={<PaymentPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AppShell>
+  const routes = (
+    <Routes>
+      <Route path="/" element={<OrderEntryPage />} />
+      <Route path="/order" element={<CustomerOrderPage />} />
+      <Route path="/order/location/:locationId" element={<CustomerLocationPage />} />
+      <Route path="/order/service/:serviceId" element={<CustomerServicePage />} />
+      <Route path="/order/checkout" element={<CustomerCheckoutPage />} />
+      <Route path="/order/confirmation/:orderId" element={<CustomerOrderConfirmationPage />} />
+      <Route path="/kds" element={<KdsPage />} />
+      <Route path="/expeditor" element={<ExpeditorPage />} />
+      <Route path="/board" element={<CustomerBoardPage />} />
+      <Route path="/admin" element={<AdminPage />} />
+      <Route path="/admin/locations" element={<LocationsListPage />} />
+      <Route path="/admin/locations/new" element={<LocationNewPage />} />
+      <Route path="/admin/locations/:locationId" element={<LocationEditPage />} />
+      <Route path="/admin/services" element={<ServicesListPage />} />
+      <Route path="/admin/services/new" element={<ServiceNewPage />} />
+      <Route path="/admin/services/:serviceId" element={<ServiceEditPage />} />
+      <Route path="/admin/menu" element={<MenuAdminPage />} />
+      <Route path="/admin/ingredients" element={<IngredientsAdminPage />} />
+      <Route path="/admin/modifiers" element={<ModifiersAdminPage />} />
+      <Route path="/payments/:paymentId" element={<PaymentPage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
+
+  return location.pathname.startsWith('/order') ? routes : <AppShell>{routes}</AppShell>
 }
 
 export default App
