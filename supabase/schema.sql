@@ -2,6 +2,7 @@ create table if not exists services (
   id text primary key,
   name text not null,
   service_date date not null,
+  status text not null default 'draft',
   start_time time not null,
   end_time time not null,
   last_collection_time time not null,
@@ -35,6 +36,18 @@ create table if not exists menu_item_recipes (
   primary key (menu_item_id, ingredient_id)
 );
 
+create table if not exists modifiers (
+  id text primary key,
+  name text not null,
+  price_delta numeric not null default 0
+);
+
+create table if not exists menu_item_modifiers (
+  menu_item_id text references menu_items(id),
+  modifier_id text references modifiers(id),
+  primary key (menu_item_id, modifier_id)
+);
+
 create table if not exists service_inventory (
   service_id text references services(id),
   ingredient_id text references ingredients(id),
@@ -58,6 +71,7 @@ create table if not exists orders (
   promised_time timestamptz not null,
   pizza_count integer not null default 0,
   total_amount numeric not null default 0,
+  pager_number integer,
   payment_status text not null,
   payment_method text not null,
   loyverse_sync_status text not null,
@@ -75,7 +89,17 @@ create table if not exists order_items (
   order_id text references orders(id) on delete cascade,
   menu_item_id text references menu_items(id),
   quantity integer not null,
+  progress_count integer not null default 0,
   notes text
+);
+
+create table if not exists order_item_modifiers (
+  id bigint generated always as identity primary key,
+  order_item_id text references order_items(id) on delete cascade,
+  modifier_id text references modifiers(id),
+  modifier_name text not null,
+  price_delta numeric not null default 0,
+  quantity integer not null default 1
 );
 
 create table if not exists service_slots (
@@ -128,4 +152,10 @@ create table if not exists activity_log (
   order_id text references orders(id),
   message text not null,
   created_at timestamptz not null default now()
+);
+
+create table if not exists service_runtime_state (
+  service_id text primary key references services(id) on delete cascade,
+  state jsonb not null,
+  updated_at timestamptz not null default now()
 );

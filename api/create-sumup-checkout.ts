@@ -21,7 +21,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: "Missing SumUp server environment variables" });
     }
 
-    const redirectUrl = `${redirectBaseUrl}/payments/${orderId}`;
+    const redirectUrl = `${redirectBaseUrl}/order/confirmation/${orderId}`;
 
     const payload = {
       amount: Number(amount),

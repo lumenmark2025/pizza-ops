@@ -5,6 +5,7 @@ export const seedSnapshot: ServiceSnapshot = {
     id: 'service_bolton',
     name: 'Bolton-le-Sands Public Service',
     date: serviceDate,
+    status: 'live',
     startTime: '17:00',
     endTime: '20:00',
     lastCollectionTime: '19:55',
@@ -90,6 +91,20 @@ export const seedSnapshot: ServiceSnapshot = {
     { ingredientId: 'basil', quantity: 260 },
     { ingredientId: 'parmesan', quantity: 1400 },
     { ingredientId: 'garlic_butter', quantity: 900 },
+  ],
+  modifiers: [
+    {
+      id: 'mod_extra_cheese',
+      name: 'Extra Cheese',
+      priceDelta: 1.5,
+      menuItemIds: ['margherita', 'pepperoni', 'nduja_hot_honey'],
+    },
+    {
+      id: 'mod_extra_pepperoni',
+      name: 'Extra Pepperoni',
+      priceDelta: 2,
+      menuItemIds: ['pepperoni'],
+    },
   ],
   customers: [
     { id: 'cust_1', name: 'Mia' },

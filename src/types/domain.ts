@@ -14,6 +14,7 @@ export type ServiceConfig = {
   id: string
   name: string
   date: string
+  status: 'draft' | 'live' | 'paused' | 'closed'
   startTime: string
   endTime: string
   lastCollectionTime: string
@@ -51,6 +52,20 @@ export type ServiceInventory = {
   quantity: number
 }
 
+export type Modifier = {
+  id: string
+  name: string
+  priceDelta: number
+  menuItemIds: string[]
+}
+
+export type OrderItemModifier = {
+  modifierId: string
+  name: string
+  priceDelta: number
+  quantity: number
+}
+
 export type Customer = {
   id: string
   name: string
@@ -62,6 +77,8 @@ export type OrderItem = {
   menuItemId: string
   quantity: number
   notes?: string
+  modifiers?: OrderItemModifier[]
+  progressCount?: number
 }
 
 export type SlotAllocation = {
@@ -92,6 +109,7 @@ export type Order = {
   paymentMethod: PaymentMethod
   loyaltySyncStatus: SyncStatus
   createdAt: string
+  pagerNumber?: number | null
   timestamps: OrderStatusTimestamps
   items: OrderItem[]
 }
@@ -141,6 +159,12 @@ export type ActivityLogEntry = {
     | 'delay_added'
     | 'payment_updated'
     | 'loyverse_retry'
+    | 'inventory_adjusted'
+    | 'modifier_updated'
+    | 'service_updated'
+    | 'pager_assigned'
+    | 'item_progressed'
+    | 'realtime_synced'
   createdAt: string
   actor: string
   orderId?: string
@@ -160,6 +184,7 @@ export type ServiceSnapshot = {
   menuItems: MenuItem[]
   recipes: MenuItemRecipe[]
   inventory: ServiceInventory[]
+  modifiers: Modifier[]
   customers: Customer[]
   orders: Order[]
   history: OrderStatusHistory[]

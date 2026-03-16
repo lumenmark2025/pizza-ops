@@ -2,12 +2,20 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { seedSnapshot } from '../data/seed'
 import { buildLoyversePayload } from '../integrations/loyverse'
+import { getOrderItemsTotal } from '../lib/order-calculations'
 import { allocateAcrossSlots, getAvailableSlots } from '../lib/slot-engine'
+import {
+  canUseRealtimeSync,
+  loadRemoteSnapshot,
+  persistRemoteSnapshot,
+  subscribeToRemoteSnapshot,
+} from '../lib/realtime-state'
 import { supabase } from '../lib/supabase'
 import { addMinutes, combineDateAndTime, formatTime, toIsoNow } from '../lib/time'
 import type {
   ActivityLogEntry,
   Customer,
+  Modifier,
   LoyverseSyncQueueItem,
   Order,
   OrderItem,
@@ -16,6 +24,7 @@ import type {
   PaymentMethod,
   PaymentRecord,
   PaymentStatus,
+  ServiceConfig,
   ServiceSnapshot,
 } from '../types/domain'
 
@@ -27,13 +36,16 @@ type CreateOrderInput = {
   items: OrderItem[]
   paymentMethod: PaymentMethod
   notes?: string
+  pagerNumber?: number | null
 }
 
 type StoreState = ServiceSnapshot & {
   isOnline: boolean
+  remoteReady: boolean
   createOrder: (input: CreateOrderInput) => { ok: true; orderId: string; paymentId?: string } | { ok: false; error: string }
   setOnlineStatus: (status: boolean) => void
   updateOrderStatus: (orderId: string, nextStatus: OrderStatus) => void
+  updateOrderItemProgress: (orderId: string, itemId: string) => void
   moveOrder: (orderId: string, promisedTime: string, reason: string, override: boolean) => { ok: boolean; warning?: string }
   addDelay: (minutes: number, actor: string, reason: string) => void
   pauseService: (minutes: number, actor: string, reason: string) => void
@@ -42,7 +54,35 @@ type StoreState = ServiceSnapshot & {
   retryLoyverseSync: (queueId: string) => void
   getAvailableTimes: (items: OrderItem[]) => ReturnType<typeof getAvailableSlots>
   resetDemo: () => void
+  updateService: (updates: Partial<ServiceConfig>, actor: string) => void
+  createFreshService: (input: Partial<ServiceConfig>, actor: string) => void
+  setInventoryQuantity: (ingredientId: string, quantity: number, actor: string) => void
+  adjustInventoryQuantity: (ingredientId: string, delta: number, actor: string) => void
+  upsertModifier: (modifier: Modifier, actor: string) => void
+  deleteModifier: (modifierId: string, actor: string) => void
+  assignPager: (orderId: string, pagerNumber: number | null, actor: string) => { ok: boolean; error?: string }
+  getActivePagerNumbers: () => number[]
+  hydrateRemote: () => Promise<void>
+  startRealtime: () => (() => void) | null
 }
+
+const SNAPSHOT_KEYS = [
+  'service',
+  'ingredients',
+  'menuItems',
+  'recipes',
+  'inventory',
+  'modifiers',
+  'customers',
+  'orders',
+  'history',
+  'payments',
+  'loyverseQueue',
+  'activityLog',
+] as const
+
+let applyingRemoteSnapshot = false
+let stopRealtimeSubscription: null | (() => void) = null
 
 const statusTimestampField: Record<OrderStatus, keyof Order['timestamps']> = {
   taken: 'taken_at',
@@ -72,6 +112,27 @@ function createActivity(
   }
 }
 
+function getPersistableSnapshot(state: ServiceSnapshot) {
+  const snapshot = {} as ServiceSnapshot
+
+  for (const key of SNAPSHOT_KEYS) {
+    ;(snapshot as Record<string, unknown>)[key] = state[key]
+  }
+
+  return snapshot
+}
+
+function shiftOrder(order: Order, minutes: number) {
+  return {
+    ...order,
+    promisedTime: addMinutes(order.promisedTime, minutes),
+    slotAllocations: order.slotAllocations.map((allocation) => ({
+      ...allocation,
+      slotTime: addMinutes(allocation.slotTime, minutes),
+    })),
+  }
+}
+
 function createDemoState(): ServiceSnapshot {
   const serviceStart = combineDateAndTime(seedSnapshot.service.date, seedSnapshot.service.startTime)
   const orders: Order[] = [
@@ -83,8 +144,9 @@ function createDemoState(): ServiceSnapshot {
       status: 'taken',
       promisedTime: addMinutes(serviceStart, 25),
       slotAllocations: [{ slotTime: addMinutes(serviceStart, 25), pizzas: 2 }],
+      pagerNumber: 4,
       pizzaCount: 2,
-      totalAmount: 23,
+      totalAmount: 24.5,
       paymentStatus: 'paid',
       paymentMethod: 'cash',
       loyaltySyncStatus: 'pending',
@@ -97,8 +159,14 @@ function createDemoState(): ServiceSnapshot {
         completed_at: null,
       },
       items: [
-        { id: 'oi_1', menuItemId: 'margherita', quantity: 1 },
-        { id: 'oi_2', menuItemId: 'pepperoni', quantity: 1 },
+        {
+          id: 'oi_1',
+          menuItemId: 'margherita',
+          quantity: 1,
+          progressCount: 0,
+          modifiers: [{ modifierId: 'mod_extra_cheese', name: 'Extra Cheese', priceDelta: 1.5, quantity: 1 }],
+        },
+        { id: 'oi_2', menuItemId: 'pepperoni', quantity: 1, progressCount: 0, modifiers: [] },
       ],
     },
     {
@@ -109,8 +177,9 @@ function createDemoState(): ServiceSnapshot {
       status: 'prepping',
       promisedTime: addMinutes(serviceStart, 35),
       slotAllocations: [{ slotTime: addMinutes(serviceStart, 35), pizzas: 2 }],
+      pagerNumber: null,
       pizzaCount: 2,
-      totalAmount: 25,
+      totalAmount: 27,
       paymentStatus: 'authorized',
       paymentMethod: 'sumup_online',
       loyaltySyncStatus: 'synced',
@@ -122,7 +191,17 @@ function createDemoState(): ServiceSnapshot {
         ready_at: null,
         completed_at: null,
       },
-      items: [{ id: 'oi_3', menuItemId: 'pepperoni', quantity: 2 }],
+      items: [
+        {
+          id: 'oi_3',
+          menuItemId: 'pepperoni',
+          quantity: 2,
+          progressCount: 1,
+          modifiers: [
+            { modifierId: 'mod_extra_pepperoni', name: 'Extra Pepperoni', priceDelta: 2, quantity: 1 },
+          ],
+        },
+      ],
     },
     {
       id: 'order_3',
@@ -132,6 +211,7 @@ function createDemoState(): ServiceSnapshot {
       status: 'ready',
       promisedTime: addMinutes(serviceStart, 20),
       slotAllocations: [{ slotTime: addMinutes(serviceStart, 20), pizzas: 1 }],
+      pagerNumber: 7,
       pizzaCount: 1,
       totalAmount: 13.5,
       paymentStatus: 'paid',
@@ -145,7 +225,7 @@ function createDemoState(): ServiceSnapshot {
         ready_at: addMinutes(serviceStart, 14),
         completed_at: null,
       },
-      items: [{ id: 'oi_4', menuItemId: 'nduja_hot_honey', quantity: 1 }],
+      items: [{ id: 'oi_4', menuItemId: 'nduja_hot_honey', quantity: 1, progressCount: 1, modifiers: [] }],
     },
   ]
 
@@ -159,7 +239,7 @@ function createDemoState(): ServiceSnapshot {
         provider: 'manual',
         method: 'cash',
         status: 'paid',
-        amount: 23,
+        amount: 24.5,
         providerReference: 'CASH-101',
         createdAt: addMinutes(serviceStart, -5),
         updatedAt: addMinutes(serviceStart, -5),
@@ -170,7 +250,7 @@ function createDemoState(): ServiceSnapshot {
         provider: 'sumup',
         method: 'sumup_online',
         status: 'authorized',
-        amount: 25,
+        amount: 27,
         providerReference: 'SUMUP-102',
         checkoutUrl: '/payments/pay_2',
         createdAt: addMinutes(serviceStart, -10),
@@ -245,339 +325,522 @@ async function mirrorOrderToSupabase(order: Order) {
     promised_time: order.promisedTime,
     total_amount: order.totalAmount,
     payment_status: order.paymentStatus,
+    pager_number: order.pagerNumber,
   })
+}
+
+function queueSnapshotSync(snapshot: ServiceSnapshot) {
+  if (applyingRemoteSnapshot || !canUseRealtimeSync()) {
+    return
+  }
+
+  void persistRemoteSnapshot(snapshot)
 }
 
 export const usePizzaOpsStore = create<StoreState>()(
   persist(
-    (set, get) => ({
-      ...createDemoState(),
-      isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
-      setOnlineStatus: (status) => set({ isOnline: status }),
-      getAvailableTimes: (items) => {
-        const state = get()
-        if (!state.service || !state.menuItems.length) {
-          return []
+    (set, get) => {
+      const commit = (
+        updater: (state: StoreState) => Partial<StoreState>,
+        options?: { sync?: boolean },
+      ) => {
+        const current = get()
+        const patch = updater(current)
+        set(patch)
+        const nextState = get()
+        if (options?.sync !== false) {
+          queueSnapshotSync(getPersistableSnapshot(nextState))
         }
+      }
 
-        return getAvailableSlots(state.service, state.orders, items, state.menuItems)
-      },
-      createOrder: (input) => {
-        const state = get()
-        const pizzaCount = input.items.reduce((count, item) => {
-          const menuItem = state.menuItems.find((entry) => entry.id === item.menuItemId)
-          return menuItem?.category === 'pizza' ? count + item.quantity : count
-        }, 0)
-        const allocation = allocateAcrossSlots(state.service, state.orders, input.promisedTime, pizzaCount)
+      return {
+        ...createDemoState(),
+        isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
+        remoteReady: false,
+        setOnlineStatus: (status) => set({ isOnline: status }),
+        hydrateRemote: async () => {
+          if (!canUseRealtimeSync()) {
+            set({ remoteReady: true })
+            return
+          }
 
-        if (!allocation.ok) {
-          return { ok: false as const, error: allocation.warning }
-        }
+          const current = getPersistableSnapshot(get())
+          const remote = await loadRemoteSnapshot(current.service.id)
+          if (remote) {
+            applyingRemoteSnapshot = true
+            set({ ...remote, remoteReady: true })
+            applyingRemoteSnapshot = false
+            return
+          }
 
-        const customer: Customer = {
-          id: randomId('cust'),
-          name: input.customerName,
-          mobile: input.mobile,
-        }
-        const now = toIsoNow()
-        const orderId = randomId('order')
-        const paymentId = randomId('pay')
-        const totalAmount = input.items.reduce((sum, item) => {
-          const menuItem = state.menuItems.find((entry) => entry.id === item.menuItemId)
-          return sum + (menuItem?.price ?? 0) * item.quantity
-        }, 0)
+          await persistRemoteSnapshot(current)
+          set({ remoteReady: true })
+        },
+        startRealtime: () => {
+          if (!canUseRealtimeSync()) {
+            return null
+          }
 
-        const paymentStatus: PaymentStatus =
-          input.paymentMethod === 'cash' || input.paymentMethod === 'terminal' ? 'paid' : 'pending'
+          stopRealtimeSubscription?.()
+          const serviceId = get().service.id
+          const stop = subscribeToRemoteSnapshot(serviceId, (snapshot) => {
+            applyingRemoteSnapshot = true
+            set({
+              ...snapshot,
+              activityLog: [
+                createActivity('realtime_synced', 'supabase', 'Remote state synced.'),
+                ...snapshot.activityLog,
+              ],
+            })
+            applyingRemoteSnapshot = false
+          })
+          stopRealtimeSubscription = stop
+          return stop
+        },
+        getAvailableTimes: (items) => {
+          const state = get()
+          if (!state.service || !state.menuItems.length) {
+            return []
+          }
 
-        const order: Order = {
-          id: orderId,
-          reference: `PZ-${100 + state.orders.length + 1}`,
-          customerId: customer.id,
-          source: input.source,
-          status: 'taken',
-          promisedTime: input.promisedTime,
-          slotAllocations: allocation.allocations,
-          pizzaCount,
-          totalAmount,
-          paymentStatus,
-          paymentMethod: input.paymentMethod,
-          loyaltySyncStatus: 'pending',
-          notes: input.notes,
-          createdAt: now,
-          timestamps: {
-            taken_at: now,
-            prepping_at: null,
-            in_oven_at: null,
-            ready_at: null,
-            completed_at: null,
-          },
-          items: input.items.map((item) => ({ ...item, id: randomId('oi') })),
-        }
+          return getAvailableSlots(state.service, state.orders, items, state.menuItems)
+        },
+        createOrder: (input) => {
+          const state = get()
+          const pizzaCount = input.items.reduce((count, item) => {
+            const menuItem = state.menuItems.find((entry) => entry.id === item.menuItemId)
+            return menuItem?.category === 'pizza' ? count + item.quantity : count
+          }, 0)
+          const allocation = allocateAcrossSlots(state.service, state.orders, input.promisedTime, pizzaCount)
 
-        const payment: PaymentRecord = {
-          id: paymentId,
-          orderId,
-          provider: input.paymentMethod === 'sumup_online' ? 'sumup' : 'manual',
-          method: input.paymentMethod,
-          status: paymentStatus,
-          amount: totalAmount,
-          providerReference:
-            input.paymentMethod === 'sumup_online' ? paymentId : `LOCAL-${order.reference}`,
-          checkoutUrl: input.paymentMethod === 'sumup_online' ? `/payments/${paymentId}` : undefined,
-          createdAt: now,
-          updatedAt: now,
-        }
+          if (!allocation.ok) {
+            return { ok: false as const, error: allocation.warning }
+          }
 
-        const queueItem: LoyverseSyncQueueItem = {
-          id: randomId('sync'),
-          orderId,
-          status: 'pending',
-          attempts: 0,
-          lastAttemptAt: null,
-          nextRetryAt: null,
-          lastError: null,
-          receiptId: null,
-          payload: buildLoyversePayload(order),
-        }
+          const customer: Customer = {
+            id: randomId('cust'),
+            name: input.customerName,
+            mobile: input.mobile,
+          }
+          const now = toIsoNow()
+          const orderId = randomId('order')
+          const paymentId = randomId('pay')
+          const orderItems = input.items.map((item) => ({
+            ...item,
+            id: randomId('oi'),
+            progressCount: item.progressCount ?? 0,
+            modifiers: item.modifiers ?? [],
+          }))
+          const totalAmount = getOrderItemsTotal(orderItems, state.menuItems)
 
-        set({
-          customers: [...state.customers, customer],
-          orders: [order, ...state.orders],
-          payments: [payment, ...state.payments],
-          loyverseQueue: [queueItem, ...state.loyverseQueue],
-          history: [
-            {
-              id: randomId('hist'),
-              orderId,
-              fromStatus: null,
-              toStatus: 'taken',
-              changedAt: now,
-              changedBy: 'order_taker',
-              note: 'Order placed',
+          const paymentStatus: PaymentStatus =
+            input.paymentMethod === 'cash' || input.paymentMethod === 'terminal' ? 'paid' : 'pending'
+
+          const order: Order = {
+            id: orderId,
+            reference: `PZ-${100 + state.orders.length + 1}`,
+            customerId: customer.id,
+            source: input.source,
+            status: 'taken',
+            promisedTime: input.promisedTime,
+            slotAllocations: allocation.allocations,
+            pagerNumber: input.pagerNumber ?? null,
+            pizzaCount,
+            totalAmount,
+            paymentStatus,
+            paymentMethod: input.paymentMethod,
+            loyaltySyncStatus: 'pending',
+            notes: input.notes,
+            createdAt: now,
+            timestamps: {
+              taken_at: now,
+              prepping_at: null,
+              in_oven_at: null,
+              ready_at: null,
+              completed_at: null,
             },
-            ...state.history,
-          ],
-          activityLog: [
-            createActivity(
-              'order_created',
-              'order_taker',
-              `${order.reference} booked for ${formatTime(order.promisedTime)}.`,
-              order.id,
+            items: orderItems,
+          }
+
+          const payment: PaymentRecord = {
+            id: paymentId,
+            orderId,
+            provider: input.paymentMethod === 'sumup_online' ? 'sumup' : 'manual',
+            method: input.paymentMethod,
+            status: paymentStatus,
+            amount: totalAmount,
+            providerReference:
+              input.paymentMethod === 'sumup_online' ? paymentId : `LOCAL-${order.reference}`,
+            checkoutUrl: input.paymentMethod === 'sumup_online' ? `/payments/${paymentId}` : undefined,
+            createdAt: now,
+            updatedAt: now,
+          }
+
+          const queueItem: LoyverseSyncQueueItem = {
+            id: randomId('sync'),
+            orderId,
+            status: 'pending',
+            attempts: 0,
+            lastAttemptAt: null,
+            nextRetryAt: null,
+            lastError: null,
+            receiptId: null,
+            payload: buildLoyversePayload(order),
+          }
+
+          commit((current) => ({
+            customers: [...current.customers, customer],
+            orders: [order, ...current.orders],
+            payments: [payment, ...current.payments],
+            loyverseQueue: [queueItem, ...current.loyverseQueue],
+            history: [
+              {
+                id: randomId('hist'),
+                orderId,
+                fromStatus: null,
+                toStatus: 'taken',
+                changedAt: now,
+                changedBy: 'order_taker',
+                note: 'Order placed',
+              },
+              ...current.history,
+            ],
+            activityLog: [
+              createActivity(
+                'order_created',
+                'order_taker',
+                `${order.reference} booked for ${formatTime(order.promisedTime)}.`,
+                order.id,
+              ),
+              ...current.activityLog,
+            ],
+          }))
+
+          void mirrorOrderToSupabase(order)
+
+          return {
+            ok: true as const,
+            orderId,
+            paymentId: input.paymentMethod === 'sumup_online' ? paymentId : undefined,
+          }
+        },
+        updateOrderStatus: (orderId, nextStatus) => {
+          const state = get()
+          const order = state.orders.find((entry) => entry.id === orderId)
+          if (!order || order.status === nextStatus) {
+            return
+          }
+
+          const now = toIsoNow()
+          commit((current) => ({
+            orders: current.orders.map((entry) =>
+              entry.id === orderId
+                ? {
+                    ...entry,
+                    status: nextStatus,
+                    timestamps: {
+                      ...entry.timestamps,
+                      [statusTimestampField[nextStatus]]: now,
+                    },
+                  }
+                : entry,
             ),
-            ...state.activityLog,
-          ],
-        })
+            history: [
+              {
+                id: randomId('hist'),
+                orderId,
+                fromStatus: order.status,
+                toStatus: nextStatus,
+                changedAt: now,
+                changedBy: 'service_team',
+              },
+              ...current.history,
+            ],
+            activityLog: [
+              createActivity('status_changed', 'service_team', `${order.reference} moved to ${nextStatus}.`, orderId),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        updateOrderItemProgress: (orderId, itemId) => {
+          const state = get()
+          const order = state.orders.find((entry) => entry.id === orderId)
+          const item = order?.items.find((entry) => entry.id === itemId)
+          if (!order || !item) {
+            return
+          }
 
-        void mirrorOrderToSupabase(order)
+          const nextProgress = Math.min((item.progressCount ?? 0) + 1, item.quantity)
+          commit((current) => ({
+            orders: current.orders.map((entry) =>
+              entry.id === orderId
+                ? {
+                    ...entry,
+                    items: entry.items.map((row) =>
+                      row.id === itemId ? { ...row, progressCount: nextProgress } : row,
+                    ),
+                  }
+                : entry,
+            ),
+            activityLog: [
+              createActivity('item_progressed', 'kds', `${order.reference} item progress ${nextProgress}/${item.quantity}.`, orderId),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        moveOrder: (orderId, promisedTime, reason, override) => {
+          const state = get()
+          const target = state.orders.find((entry) => entry.id === orderId)
+          if (!target) {
+            return { ok: false, warning: 'Order not found.' }
+          }
 
-        return {
-          ok: true as const,
-          orderId,
-          paymentId: input.paymentMethod === 'sumup_online' ? paymentId : undefined,
-        }
-      },
-      updateOrderStatus: (orderId, nextStatus) => {
-        const state = get()
-        const now = toIsoNow()
-        const order = state.orders.find((entry) => entry.id === orderId)
-        if (!order || order.status === nextStatus) {
-          return
-        }
+          const otherOrders = state.orders.filter((entry) => entry.id !== orderId)
+          const allocation = allocateAcrossSlots(state.service, otherOrders, promisedTime, target.pizzaCount)
+          if (!allocation.ok && !override) {
+            return { ok: false, warning: allocation.warning }
+          }
 
-        set({
-          orders: state.orders.map((entry) =>
-            entry.id === orderId
-              ? {
-                  ...entry,
-                  status: nextStatus,
-                  timestamps: {
-                    ...entry.timestamps,
-                    [statusTimestampField[nextStatus]]: now,
-                  },
-                }
-              : entry,
-          ),
-          history: [
-            {
-              id: randomId('hist'),
-              orderId,
-              fromStatus: order.status,
-              toStatus: nextStatus,
-              changedAt: now,
-              changedBy: 'service_team',
+          commit((current) => ({
+            orders: current.orders.map((entry) =>
+              entry.id === orderId
+                ? {
+                    ...entry,
+                    promisedTime,
+                    slotAllocations: allocation.ok
+                      ? allocation.allocations
+                      : [{ slotTime: promisedTime, pizzas: target.pizzaCount }],
+                  }
+                : entry,
+            ),
+            activityLog: [
+              createActivity('order_moved', 'manager', `${target.reference} moved to ${formatTime(promisedTime)}. ${reason}${override ? ' Override accepted.' : ''}`, orderId),
+              ...current.activityLog,
+            ],
+          }))
+          return { ok: true, warning: allocation.ok ? undefined : allocation.warning }
+        },
+        addDelay: (minutes, actor, reason) => {
+          commit((current) => ({
+            service: { ...current.service, delayMinutes: current.service.delayMinutes + minutes },
+            orders: current.orders.map((order) =>
+              order.status !== 'completed' && new Date(order.promisedTime).getTime() >= Date.now()
+                ? shiftOrder(order, minutes)
+                : order,
+            ),
+            activityLog: [
+              createActivity('delay_added', actor, `Added ${minutes} minute delay. ${reason}`),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        pauseService: (minutes, actor, reason) => {
+          const pausedUntil = addMinutes(toIsoNow(), minutes)
+          commit((current) => ({
+            service: {
+              ...current.service,
+              status: 'paused',
+              pausedUntil,
+              pauseReason: reason,
             },
-            ...state.history,
-          ],
-          activityLog: [
-            createActivity(
-              'status_changed',
-              'service_team',
-              `${order.reference} moved to ${nextStatus}.`,
-              orderId,
+            orders: current.orders.map((order) =>
+              order.status !== 'completed' && new Date(order.promisedTime).getTime() >= Date.now()
+                ? shiftOrder(order, minutes)
+                : order,
             ),
-            ...state.activityLog,
-          ],
-        })
-      },
-      moveOrder: (orderId, promisedTime, reason, override) => {
-        const state = get()
-        const target = state.orders.find((entry) => entry.id === orderId)
-        if (!target) {
-          return { ok: false, warning: 'Order not found.' }
-        }
+            activityLog: [
+              createActivity('service_paused', actor, `Paused service until ${formatTime(pausedUntil)}. ${reason}`),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        updatePaymentStatus: (paymentId, status) => {
+          const state = get()
+          const payment = state.payments.find((entry) => entry.id === paymentId)
+          if (!payment) {
+            return
+          }
 
-        const otherOrders = state.orders.filter((entry) => entry.id !== orderId)
-        const allocation = allocateAcrossSlots(state.service, otherOrders, promisedTime, target.pizzaCount)
-
-        if (!allocation.ok && !override) {
-          return { ok: false, warning: allocation.warning }
-        }
-
-        set({
-          orders: state.orders.map((entry) =>
-            entry.id === orderId
-              ? {
-                  ...entry,
-                  promisedTime,
-                  slotAllocations: allocation.ok
-                    ? allocation.allocations
-                    : [{ slotTime: promisedTime, pizzas: target.pizzaCount }],
-                }
-              : entry,
-          ),
-          activityLog: [
-            createActivity(
-              'order_moved',
-              'manager',
-              `${target.reference} moved to ${formatTime(promisedTime)}. ${reason}${override ? ' Override accepted.' : ''}`,
-              orderId,
+          commit((current) => ({
+            payments: current.payments.map((entry) =>
+              entry.id === paymentId ? { ...entry, status, updatedAt: toIsoNow() } : entry,
             ),
-            ...state.activityLog,
-          ],
-        })
-
-        return { ok: true, warning: allocation.ok ? undefined : allocation.warning }
-      },
-      addDelay: (minutes, actor, reason) => {
-        const state = get()
-        set({
-          service: { ...state.service, delayMinutes: state.service.delayMinutes + minutes },
-          activityLog: [
-            createActivity('delay_added', actor, `Added ${minutes} minute delay. ${reason}`),
-            ...state.activityLog,
-          ],
-        })
-      },
-      pauseService: (minutes, actor, reason) => {
-        const state = get()
-        const pausedUntil = addMinutes(toIsoNow(), minutes)
-        set({
-          service: { ...state.service, pausedUntil, pauseReason: reason },
-          activityLog: [
-            createActivity(
-              'service_paused',
-              actor,
-              `Paused service until ${formatTime(pausedUntil)}. ${reason}`,
+            orders: current.orders.map((entry) =>
+              entry.id === payment.orderId ? { ...entry, paymentStatus: status } : entry,
             ),
-            ...state.activityLog,
-          ],
-        })
-      },
-      updatePaymentStatus: (paymentId, status) => {
-        const state = get()
-        const payment = state.payments.find((entry) => entry.id === paymentId)
-        if (!payment) {
-          return
-        }
+            activityLog: [
+              createActivity('payment_updated', 'payments', `Payment ${payment.providerReference} updated to ${status}.`, payment.orderId),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        updatePaymentCheckout: (paymentId, updates) => {
+          const state = get()
+          const payment = state.payments.find((entry) => entry.id === paymentId)
+          if (!payment) {
+            return
+          }
 
-        set({
-          payments: state.payments.map((entry) =>
-            entry.id === paymentId ? { ...entry, status, updatedAt: toIsoNow() } : entry,
-          ),
-          orders: state.orders.map((entry) =>
-            entry.id === payment.orderId ? { ...entry, paymentStatus: status } : entry,
-          ),
-          activityLog: [
-            createActivity(
-              'payment_updated',
-              'payments',
-              `Payment ${payment.providerReference} updated to ${status}.`,
-              payment.orderId,
+          const nextStatus = updates.status ?? payment.status
+          commit((current) => ({
+            payments: current.payments.map((entry) =>
+              entry.id === paymentId
+                ? {
+                    ...entry,
+                    providerReference: updates.providerReference ?? entry.providerReference,
+                    checkoutUrl: updates.checkoutUrl ?? entry.checkoutUrl,
+                    status: nextStatus,
+                    updatedAt: toIsoNow(),
+                  }
+                : entry,
             ),
-            ...state.activityLog,
-          ],
-        })
-      },
-      updatePaymentCheckout: (paymentId, updates) => {
-        const state = get()
-        const payment = state.payments.find((entry) => entry.id === paymentId)
-        if (!payment) {
-          return
-        }
+            orders: current.orders.map((entry) =>
+              entry.id === payment.orderId ? { ...entry, paymentStatus: nextStatus } : entry,
+            ),
+            activityLog: [
+              createActivity('payment_updated', 'payments', `Payment ${paymentId} checkout session updated.`, payment.orderId),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        retryLoyverseSync: (queueId) => {
+          const state = get()
+          const queueItem = state.loyverseQueue.find((entry) => entry.id === queueId)
+          if (!queueItem) {
+            return
+          }
 
-        const nextStatus = updates.status ?? payment.status
+          const now = toIsoNow()
+          const isOnline = get().isOnline
+          commit((current) => ({
+            loyverseQueue: current.loyverseQueue.map((entry) =>
+              entry.id === queueId
+                ? {
+                    ...entry,
+                    status: isOnline ? 'processing' : 'failed',
+                    attempts: entry.attempts + 1,
+                    lastAttemptAt: now,
+                    nextRetryAt: isOnline ? null : addMinutes(now, 15),
+                    lastError: isOnline ? null : 'Device offline, retry scheduled.',
+                  }
+                : entry,
+            ),
+            activityLog: [
+              createActivity('loyverse_retry', 'manager', `Retry requested for Loyverse queue ${queueId}.`, queueItem.orderId),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        updateService: (updates, actor) => {
+          commit((current) => ({
+            service: { ...current.service, ...updates },
+            activityLog: [
+              createActivity('service_updated', actor, 'Service settings updated.'),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        createFreshService: (input, actor) => {
+          const current = get()
+          const nextService: ServiceConfig = {
+            ...current.service,
+            ...input,
+            id: input.id ?? randomId('service'),
+            date: input.date ?? new Date().toISOString().slice(0, 10),
+            status: input.status ?? 'draft',
+            delayMinutes: 0,
+            pausedUntil: null,
+            pauseReason: null,
+          }
 
-        set({
-          payments: state.payments.map((entry) =>
-            entry.id === paymentId
-              ? {
-                  ...entry,
-                  providerReference: updates.providerReference ?? entry.providerReference,
-                  checkoutUrl: updates.checkoutUrl ?? entry.checkoutUrl,
-                  status: nextStatus,
-                  updatedAt: toIsoNow(),
-                }
-              : entry,
-          ),
-          orders: state.orders.map((entry) =>
-            entry.id === payment.orderId ? { ...entry, paymentStatus: nextStatus } : entry,
-          ),
-          activityLog: [
-            createActivity(
-              'payment_updated',
-              'payments',
-              `Payment ${paymentId} checkout session updated.`,
-              payment.orderId,
+          commit(() => ({
+            ...createDemoState(),
+            service: nextService,
+            orders: [],
+            customers: [],
+            payments: [],
+            loyverseQueue: [],
+            history: [],
+            activityLog: [createActivity('service_updated', actor, `Created service ${nextService.name}.`)],
+          }))
+        },
+        setInventoryQuantity: (ingredientId, quantity, actor) => {
+          const safeQuantity = Math.max(0, quantity)
+          commit((current) => ({
+            inventory: current.inventory.map((entry) =>
+              entry.ingredientId === ingredientId ? { ...entry, quantity: safeQuantity } : entry,
             ),
-            ...state.activityLog,
-          ],
-        })
-      },
-      retryLoyverseSync: (queueId) => {
-        const state = get()
-        const queueItem = state.loyverseQueue.find((entry) => entry.id === queueId)
-        if (!queueItem) {
-          return
-        }
-        const now = toIsoNow()
-        const isOnline = get().isOnline
-        set({
-          loyverseQueue: state.loyverseQueue.map((entry) =>
-            entry.id === queueId
-              ? {
-                  ...entry,
-                  status: isOnline ? 'processing' : 'failed',
-                  attempts: entry.attempts + 1,
-                  lastAttemptAt: now,
-                  nextRetryAt: isOnline ? null : addMinutes(now, 15),
-                  lastError: isOnline ? null : 'Device offline, retry scheduled.',
-                }
-              : entry,
-          ),
-          activityLog: [
-            createActivity(
-              'loyverse_retry',
-              'manager',
-              `Retry requested for Loyverse queue ${queueId}.`,
-              queueItem.orderId,
+            activityLog: [
+              createActivity('inventory_adjusted', actor, `Inventory ${ingredientId} set to ${safeQuantity}.`),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        adjustInventoryQuantity: (ingredientId, delta, actor) => {
+          const currentEntry = get().inventory.find((entry) => entry.ingredientId === ingredientId)
+          const nextQuantity = Math.max(0, (currentEntry?.quantity ?? 0) + delta)
+          get().setInventoryQuantity(ingredientId, nextQuantity, actor)
+        },
+        upsertModifier: (modifier, actor) => {
+          const exists = get().modifiers.some((entry) => entry.id === modifier.id)
+          commit((current) => ({
+            modifiers: exists
+              ? current.modifiers.map((entry) => (entry.id === modifier.id ? modifier : entry))
+              : [...current.modifiers, modifier],
+            activityLog: [
+              createActivity('modifier_updated', actor, `${exists ? 'Updated' : 'Created'} modifier ${modifier.name}.`),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        deleteModifier: (modifierId, actor) => {
+          commit((current) => ({
+            modifiers: current.modifiers.filter((entry) => entry.id !== modifierId),
+            activityLog: [
+              createActivity('modifier_updated', actor, `Deleted modifier ${modifierId}.`),
+              ...current.activityLog,
+            ],
+          }))
+        },
+        assignPager: (orderId, pagerNumber, actor) => {
+          const current = get()
+          const order = current.orders.find((entry) => entry.id === orderId)
+          if (!order) {
+            return { ok: false, error: 'Order not found.' }
+          }
+
+          if (
+            pagerNumber &&
+            current.orders.some(
+              (entry) =>
+                entry.id !== orderId &&
+                entry.status !== 'completed' &&
+                entry.pagerNumber === pagerNumber,
+            )
+          ) {
+            return { ok: false, error: `Pager ${pagerNumber} is already in use.` }
+          }
+
+          commit((state) => ({
+            orders: state.orders.map((entry) =>
+              entry.id === orderId ? { ...entry, pagerNumber } : entry,
             ),
-            ...state.activityLog,
-          ],
-        })
-      },
-      resetDemo: () => set({ ...createDemoState() }),
-    }),
+            activityLog: [
+              createActivity('pager_assigned', actor, `${order.reference} pager ${pagerNumber ?? 'cleared'}.`, orderId),
+              ...state.activityLog,
+            ],
+          }))
+          return { ok: true }
+        },
+        getActivePagerNumbers: () =>
+          get()
+            .orders.filter((entry) => entry.status !== 'completed' && entry.pagerNumber)
+            .map((entry) => entry.pagerNumber as number),
+        resetDemo: () => {
+          commit(() => ({ ...createDemoState() }))
+        },
+      }
+    },
     {
       name: 'pizza-ops-mvp',
       partialize: (state) => ({
@@ -586,6 +849,7 @@ export const usePizzaOpsStore = create<StoreState>()(
         menuItems: state.menuItems,
         recipes: state.recipes,
         inventory: state.inventory,
+        modifiers: state.modifiers,
         customers: state.customers,
         orders: state.orders,
         history: state.history,
