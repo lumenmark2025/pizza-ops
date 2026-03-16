@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { CustomerOrderConfirmationPage, CustomerOrderPage } from './features/customer-ordering'
 import { AdminPage } from './features/admin-ops'
+import { LocationEditPage, LocationNewPage, LocationsListPage } from './features/location-management'
+import { MenuAdminPage } from './features/menu-management'
 import { ExpeditorPage, KdsPage, PaymentPage, CustomerBoardPage } from './features/ops-views'
 import { OrderEntryPage } from './features/operator-order-entry'
 import { AppShell } from './features/operator-shell'
@@ -61,9 +63,13 @@ function App() {
         <Route path="/expeditor" element={<ExpeditorPage />} />
         <Route path="/board" element={<CustomerBoardPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin/locations" element={<LocationsListPage />} />
+        <Route path="/admin/locations/new" element={<LocationNewPage />} />
+        <Route path="/admin/locations/:locationId" element={<LocationEditPage />} />
         <Route path="/admin/services" element={<ServicesListPage />} />
         <Route path="/admin/services/new" element={<ServiceNewPage />} />
         <Route path="/admin/services/:serviceId" element={<ServiceEditPage />} />
+        <Route path="/admin/menu" element={<MenuAdminPage />} />
         <Route path="/payments/:paymentId" element={<PaymentPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -40,10 +40,13 @@ export function CustomerOrderPage() {
   const recipes = usePizzaOpsStore((state) => state.recipes)
   const inventory = usePizzaOpsStore((state) => state.inventory)
   const service = usePizzaOpsStore((state) => state.service)
+  const services = usePizzaOpsStore((state) => state.services)
+  const locations = usePizzaOpsStore((state) => state.locations)
   const modifiers = usePizzaOpsStore((state) => state.modifiers)
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
+  const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
   const [customerName, setCustomerName] = useState('')
   const [mobile, setMobile] = useState('')
   const [notes, setNotes] = useState('')
@@ -57,6 +60,21 @@ export function CustomerOrderPage() {
     () => getMenuAvailability(inventory, recipes, menuItems, orders),
     [inventory, menuItems, orders, recipes],
   )
+  const eligibleServices = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const maxDate = new Date(today)
+    maxDate.setDate(today.getDate() + 5)
+
+    return services.filter((entry) => {
+      const serviceDate = new Date(`${entry.date}T00:00:00`)
+      return serviceDate >= today && serviceDate <= maxDate && entry.status !== 'closed'
+    })
+  }, [services])
+  const location = useMemo(
+    () => locations.find((entry) => entry.id === service.locationId),
+    [locations, service.locationId],
+  )
   const availableSlots = useMemo(() => getAvailableTimes(basket), [basket, getAvailableTimes])
   const total = basket.reduce((sum, item) => {
     const menuItem = menuItems.find((entry) => entry.id === item.menuItemId)
@@ -68,6 +86,12 @@ export function CustomerOrderPage() {
       setSelectedTime(availableSlots[0].promisedTime)
     }
   }, [availableSlots, selectedTime])
+
+  useEffect(() => {
+    if (eligibleServices.length && !eligibleServices.some((entry) => entry.id === service.id)) {
+      loadServiceForEditing(eligibleServices[0].id)
+    }
+  }, [eligibleServices, loadServiceForEditing, service.id])
 
   function addToBasket(menuItemId: string) {
     setBasket((current) => {
@@ -190,11 +214,33 @@ export function CustomerOrderPage() {
               Fresh wood-fired pizza. Pick your order, choose a collection slot, and pay
               online.
             </p>
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+              <p className="font-semibold text-white">{location?.name ?? service.locationName}</p>
+              <p>{location?.addressLine1}</p>
+              {location?.addressLine2 ? <p>{location.addressLine2}</p> : null}
+              <p>{location ? `${location.townCity} ${location.postcode}` : 'Address to be confirmed'}</p>
+              <p className="mt-2">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
+            </div>
             {!service.acceptPublicOrders ? (
               <p className="mt-3 rounded-2xl border border-rose-300/40 bg-rose-500/15 px-4 py-3 text-sm text-rose-100">
                 Public ordering is currently closed. {service.publicOrderClosureReason ?? 'Please check back later.'}
               </p>
             ) : null}
+          </div>
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Available services in the next 5 days</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {eligibleServices.map((entry) => {
+                const entryLocation = locations.find((item) => item.id === entry.locationId)
+                const active = entry.id === service.id
+                return (
+                  <button key={entry.id} className={cn('rounded-2xl border px-4 py-3 text-left text-sm transition', active ? 'border-orange-400 bg-orange-50' : 'border-slate-200 bg-white hover:bg-slate-100')} onClick={() => loadServiceForEditing(entry.id)}>
+                    <p className="font-semibold">{entryLocation?.name ?? entry.locationName}</p>
+                    <p className="text-slate-500">{entry.date} · {entry.startTime}-{entry.lastCollectionTime}</p>
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-6">
             {menuItems.map((menuItem) => {

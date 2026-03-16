@@ -41,6 +41,7 @@ function StatPanel({
 
 export function ServiceEditPanel() {
   const service = usePizzaOpsStore((state) => state.service)
+  const locations = usePizzaOpsStore((state) => state.locations)
   const serviceLocations = usePizzaOpsStore((state) => state.serviceLocations)
   const orders = usePizzaOpsStore((state) => state.orders)
   const customers = usePizzaOpsStore((state) => state.customers)
@@ -112,6 +113,10 @@ export function ServiceEditPanel() {
   const inventorySummary = useMemo(
     () => getInventorySummary(inventory, recipes, menuItems, orders),
     [inventory, menuItems, orders, recipes],
+  )
+  const location = useMemo(
+    () => locations.find((entry) => entry.id === service.locationId),
+    [locations, service.locationId],
   )
   const moveTarget = useMemo(() => orders.find((entry) => entry.id === moveOrderId), [moveOrderId, orders])
   const availableMoveSlots = useMemo(() => {
@@ -215,6 +220,17 @@ export function ServiceEditPanel() {
             detail={`${payments.filter((entry) => entry.status === 'failed').length} failed`}
           />
         </div>
+
+        {location ? (
+          <Card className="p-4 sm:p-5">
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Selected location</p>
+            <h2 className="mt-2 font-display text-2xl font-bold">{location.name}</h2>
+            <p className="mt-2 text-sm text-slate-500">{location.addressLine1}</p>
+            {location.addressLine2 ? <p className="text-sm text-slate-500">{location.addressLine2}</p> : null}
+            <p className="text-sm text-slate-500">{location.townCity} {location.postcode}</p>
+            {location.notes ? <p className="mt-2 text-sm text-slate-500">{location.notes}</p> : null}
+          </Card>
+        ) : null}
 
         <Card className="p-4 sm:p-5">
           <h2 className="font-display text-2xl font-bold">Service management</h2>
@@ -578,11 +594,14 @@ export function AdminPage() {
           <Link to="/admin/services">
             <Button>Open services</Button>
           </Link>
-          <Link to={`/admin/services/${service.id}`}>
-            <Button variant="secondary">Open active service</Button>
+          <Link to="/admin/locations">
+            <Button variant="secondary">Open locations</Button>
           </Link>
-          <Link to="/admin/services/new">
-            <Button variant="outline">Create service</Button>
+          <Link to="/admin/menu">
+            <Button variant="secondary">Open menu</Button>
+          </Link>
+          <Link to={`/admin/services/${service.id}`}>
+            <Button variant="outline">Open active service</Button>
           </Link>
         </div>
       </Card>

@@ -14,6 +14,7 @@ export type ServiceConfig = {
   id: string
   name: string
   locationName: string
+  locationId: string
   date: string
   status: 'draft' | 'live' | 'paused' | 'closed'
   acceptPublicOrders: boolean
@@ -26,6 +27,17 @@ export type ServiceConfig = {
   delayMinutes: number
   pausedUntil: string | null
   pauseReason: string | null
+}
+
+export type Location = {
+  id: string
+  name: string
+  addressLine1: string
+  addressLine2?: string
+  townCity: string
+  postcode: string
+  notes?: string
+  active: boolean
 }
 
 export type Ingredient = {
@@ -185,6 +197,7 @@ export type SlotAvailability = {
 export type ServiceSnapshot = {
   service: ServiceConfig
   services: ServiceConfig[]
+  locations: Location[]
   serviceLocations: string[]
   ingredients: Ingredient[]
   menuItems: MenuItem[]

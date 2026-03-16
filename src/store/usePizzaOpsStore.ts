@@ -16,6 +16,7 @@ import { addMinutes, combineDateAndTime, formatTime, toIsoNow } from '../lib/tim
 import type {
   ActivityLogEntry,
   Customer,
+  Location,
   MenuItem,
   MenuItemRecipe,
   Modifier,
@@ -59,6 +60,7 @@ type StoreState = ServiceSnapshot & {
   resetDemo: () => void
   updateService: (updates: Partial<ServiceConfig>, actor: string) => void
   updateServiceLocations: (locations: string[], actor: string) => void
+  upsertLocation: (location: Location, actor: string) => void
   createFreshService: (input: Partial<ServiceConfig>, actor: string, options?: { applyInventoryDefaults?: boolean }) => string
   loadServiceForEditing: (serviceId: string) => boolean
   duplicateService: (serviceId: string, actor: string) => string | null
@@ -83,6 +85,7 @@ type StoreState = ServiceSnapshot & {
 const SNAPSHOT_KEYS = [
   'service',
   'services',
+  'locations',
   'serviceLocations',
   'ingredients',
   'menuItems',
@@ -803,10 +806,15 @@ export const usePizzaOpsStore = create<StoreState>()(
           }))
         },
         updateService: (updates, actor) => {
+          const locationName = updates.locationId
+            ? get().locations.find((entry) => entry.id === updates.locationId)?.name
+            : updates.locationName
           commit((current) => ({
-            service: { ...current.service, ...updates },
+            service: { ...current.service, ...updates, ...(locationName ? { locationName } : {}) },
             services: current.services.map((entry) =>
-              entry.id === current.service.id ? { ...entry, ...updates } : entry,
+              entry.id === current.service.id
+                ? { ...entry, ...updates, ...(locationName ? { locationName } : {}) }
+                : entry,
             ),
             activityLog: [
               createActivity('service_updated', actor, 'Service settings updated.'),
@@ -823,13 +831,43 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
+        upsertLocation: (location, actor) => {
+          const exists = get().locations.some((entry) => entry.id === location.id)
+          commit((current) => ({
+            locations: exists
+              ? current.locations.map((entry) => (entry.id === location.id ? location : entry))
+              : [...current.locations, location],
+            serviceLocations: Array.from(
+              new Set(
+                (exists
+                  ? current.locations.map((entry) => (entry.id === location.id ? location.name : entry.name))
+                  : [...current.locations.map((entry) => entry.name), location.name]).filter(Boolean),
+              ),
+            ),
+            services: current.services.map((entry) =>
+              entry.locationId === location.id
+                ? { ...entry, locationName: location.name }
+                : entry,
+            ),
+            service:
+              current.service.locationId === location.id
+                ? { ...current.service, locationName: location.name }
+                : current.service,
+            activityLog: [
+              createActivity('service_updated', actor, `${exists ? 'Updated' : 'Created'} location ${location.name}.`),
+              ...current.activityLog,
+            ],
+          }))
+        },
         createFreshService: (input, actor, options) => {
           const current = get()
+          const targetLocation = current.locations.find((entry) => entry.id === input.locationId)
           const nextService: ServiceConfig = {
             ...current.service,
             ...input,
             id: input.id ?? randomId('service'),
-            locationName: input.locationName ?? current.service.locationName,
+            locationName: targetLocation?.name ?? input.locationName ?? current.service.locationName,
+            locationId: input.locationId ?? current.service.locationId,
             date: input.date ?? new Date().toISOString().slice(0, 10),
             status: input.status ?? 'draft',
             acceptPublicOrders: input.acceptPublicOrders ?? true,
@@ -868,6 +906,8 @@ export const usePizzaOpsStore = create<StoreState>()(
           commit((current) => ({
             service: {
               ...target,
+              locationName:
+                state.locations.find((entry) => entry.id === target.locationId)?.name ?? target.locationName,
               delayMinutes: target.delayMinutes ?? 0,
               pausedUntil: target.pausedUntil ?? null,
               pauseReason: target.pauseReason ?? null,
@@ -1038,6 +1078,7 @@ export const usePizzaOpsStore = create<StoreState>()(
       partialize: (state) => ({
         service: state.service,
         services: state.services,
+        locations: state.locations,
         serviceLocations: state.serviceLocations,
         ingredients: state.ingredients,
         menuItems: state.menuItems,

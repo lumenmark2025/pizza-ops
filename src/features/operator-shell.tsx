@@ -94,6 +94,8 @@ export function AppShell({ children }: PropsWithChildren) {
                 { href: '/board', label: 'Customer Board', icon: MonitorSmartphone },
                 { href: '/admin', label: 'Admin', icon: Settings2 },
                 { href: '/admin/services', label: 'Services', icon: ClipboardList },
+                { href: '/admin/locations', label: 'Locations', icon: Settings2 },
+                { href: '/admin/menu', label: 'Menu', icon: Pizza },
                 { href: '/order', label: 'Public Order', icon: SmartphoneNfc },
               ].map((item) => {
                 const Icon = item.icon

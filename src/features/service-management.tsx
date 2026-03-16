@@ -19,12 +19,12 @@ function ServiceForm({
   submitLabel: string
   onSubmit: (value: Partial<ServiceConfig>, applyDefaults: boolean) => void
 }) {
-  const serviceLocations = usePizzaOpsStore((state) => state.serviceLocations)
+  const locations = usePizzaOpsStore((state) => state.locations.filter((entry) => entry.active))
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const [applyDefaults, setApplyDefaults] = useState(true)
   const [form, setForm] = useState({
     name: initialValue.name,
-    locationName: initialValue.locationName,
+    locationId: initialValue.locationId,
     date: initialValue.date,
     status: initialValue.status,
     acceptPublicOrders: initialValue.acceptPublicOrders,
@@ -39,7 +39,7 @@ function ServiceForm({
   useEffect(() => {
     setForm({
       name: initialValue.name,
-      locationName: initialValue.locationName,
+      locationId: initialValue.locationId,
       date: initialValue.date,
       status: initialValue.status,
       acceptPublicOrders: initialValue.acceptPublicOrders,
@@ -52,23 +52,25 @@ function ServiceForm({
     })
   }, [initialValue])
 
+  const selectedLocation = locations.find((entry) => entry.id === form.locationId)
+
   return (
     <Card className="mx-auto max-w-5xl p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Services</p>
           <h2 className="mt-2 font-display text-3xl font-bold">{submitLabel}</h2>
-          <p className="mt-2 text-sm text-slate-500">Create or edit the service details before opening the service for operational control.</p>
+          <p className="mt-2 text-sm text-slate-500">Create or edit a dated service that references one saved popup location.</p>
         </div>
-        <Badge variant="blue">{menuItems.length} menu items available</Badge>
+        <Badge variant="blue">{menuItems.length} menu items in current menu</Badge>
       </div>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <label className="grid gap-2 text-sm">
-          <span className="font-semibold text-slate-600">Popup/location preset</span>
-          <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={form.locationName} onChange={(event) => setForm((current) => ({ ...current, locationName: event.target.value, name: current.name || event.target.value }))}>
-            {serviceLocations.map((location) => (
-              <option key={location} value={location}>
-                {location}
+          <span className="font-semibold text-slate-600">Location</span>
+          <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={form.locationId} onChange={(event) => setForm((current) => ({ ...current, locationId: event.target.value, name: current.name || locations.find((entry) => entry.id === event.target.value)?.name || '' }))}>
+            {locations.map((location) => (
+              <option key={location.id} value={location.id}>
+                {location.name}
               </option>
             ))}
           </select>
@@ -123,9 +125,17 @@ function ServiceForm({
           <Textarea placeholder="Shown when public ordering is closed" value={form.publicOrderClosureReason} onChange={(event) => setForm((current) => ({ ...current, publicOrderClosureReason: event.target.value }))} />
         </label>
       </div>
+      {selectedLocation ? (
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <p className="font-semibold text-slate-900">{selectedLocation.name}</p>
+          <p>{selectedLocation.addressLine1}</p>
+          {selectedLocation.addressLine2 ? <p>{selectedLocation.addressLine2}</p> : null}
+          <p>{selectedLocation.townCity} {selectedLocation.postcode}</p>
+        </div>
+      ) : null}
       <div className="mt-5 rounded-2xl border border-slate-200 p-4">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Menu and inventory</p>
-        <p className="mt-2 text-sm text-slate-500">This service will use the current menu set. Inventory defaults can be copied in at creation time.</p>
+        <p className="mt-2 text-sm text-slate-500">This service uses the current menu set. Default inventory can be copied in at creation time.</p>
         <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-600">
           <input type="checkbox" checked={applyDefaults} onChange={(event) => setApplyDefaults(event.target.checked)} />
           Apply default inventory to this service
@@ -147,6 +157,7 @@ export function ServicesListPage() {
   const navigate = useNavigate()
   const services = usePizzaOpsStore((state) => state.services)
   const service = usePizzaOpsStore((state) => state.service)
+  const locations = usePizzaOpsStore((state) => state.locations)
   const duplicateService = usePizzaOpsStore((state) => state.duplicateService)
   const archiveService = usePizzaOpsStore((state) => state.archiveService)
 
@@ -165,50 +176,61 @@ export function ServicesListPage() {
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Services</p>
             <h2 className="mt-2 font-display text-3xl font-bold">Upcoming services</h2>
-            <p className="mt-2 text-sm text-slate-500">Scan upcoming popups, create a new service, or jump into an operational edit screen.</p>
+            <p className="mt-2 text-sm text-slate-500">Each service is a dated trading instance tied to a reusable location.</p>
           </div>
-          <Link to="/admin/services/new">
-            <Button>Create service</Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/admin/locations">
+              <Button variant="secondary">Locations</Button>
+            </Link>
+            <Link to="/admin/services/new">
+              <Button>Create service</Button>
+            </Link>
+          </div>
         </div>
       </Card>
 
       <div className="grid gap-3">
-        {upcomingServices.map((entry) => (
-          <Card key={entry.id} className="p-4 sm:p-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="grid gap-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-display text-2xl font-bold">{entry.name}</h3>
-                  <Badge variant={entry.status === 'live' ? 'green' : entry.status === 'closed' ? 'slate' : 'amber'}>{entry.status}</Badge>
-                  <Badge variant={entry.acceptPublicOrders ? 'blue' : 'red'}>
-                    {entry.acceptPublicOrders ? 'Public ordering open' : 'Public ordering closed'}
-                  </Badge>
-                  {entry.id === service.id ? <Badge variant="orange">Active service</Badge> : null}
+        {upcomingServices.map((entry) => {
+          const location = locations.find((item) => item.id === entry.locationId)
+          return (
+            <Card key={entry.id} className="p-4 sm:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="grid gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-display text-2xl font-bold">{entry.name}</h3>
+                    <Badge variant={entry.status === 'live' ? 'green' : entry.status === 'closed' ? 'slate' : 'amber'}>{entry.status}</Badge>
+                    <Badge variant={entry.acceptPublicOrders ? 'blue' : 'red'}>
+                      {entry.acceptPublicOrders ? 'Public ordering open' : 'Public ordering closed'}
+                    </Badge>
+                    {entry.id === service.id ? <Badge variant="orange">Active service</Badge> : null}
+                  </div>
+                  <p className="text-sm text-slate-500">{location?.name ?? entry.locationName}</p>
+                  <p className="text-sm text-slate-500">{entry.date} · {entry.startTime} to {entry.endTime} · Last slot {entry.lastCollectionTime}</p>
+                  <p className="text-sm text-slate-500">
+                    {location ? `${location.addressLine1}, ${location.townCity} ${location.postcode}` : 'Location details not set'}
+                  </p>
+                  <p className="text-sm text-slate-500">Menu: current active menu set</p>
                 </div>
-                <p className="text-sm text-slate-500">{entry.locationName}</p>
-                <p className="text-sm text-slate-500">{entry.date} · {entry.startTime} to {entry.endTime} · Last slot {entry.lastCollectionTime}</p>
-                <p className="text-sm text-slate-500">Menu: current active menu set</p>
+                <div className="flex flex-wrap gap-2">
+                  <Link to={`/admin/services/${entry.id}`}>
+                    <Button>Edit service</Button>
+                  </Link>
+                  <Button variant="secondary" onClick={() => {
+                    const duplicateId = duplicateService(entry.id, 'manager')
+                    if (duplicateId) {
+                      navigate(`/admin/services/${duplicateId}`)
+                    }
+                  }}>
+                    Duplicate
+                  </Button>
+                  <Button variant="outline" onClick={() => archiveService(entry.id, 'manager')}>
+                    Cancel/archive
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Link to={`/admin/services/${entry.id}`}>
-                  <Button>Edit service</Button>
-                </Link>
-                <Button variant="secondary" onClick={() => {
-                  const duplicateId = duplicateService(entry.id, 'manager')
-                  if (duplicateId) {
-                    navigate(`/admin/services/${duplicateId}`)
-                  }
-                }}>
-                  Duplicate
-                </Button>
-                <Button variant="outline" onClick={() => archiveService(entry.id, 'manager')}>
-                  Cancel/archive
-                </Button>
-              </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          )
+        })}
       </div>
     </div>
   )
@@ -217,6 +239,7 @@ export function ServicesListPage() {
 export function ServiceNewPage() {
   const navigate = useNavigate()
   const service = usePizzaOpsStore((state) => state.service)
+  const locations = usePizzaOpsStore((state) => state.locations)
   const createFreshService = usePizzaOpsStore((state) => state.createFreshService)
 
   const initialValue = useMemo<ServiceConfig>(
@@ -224,6 +247,8 @@ export function ServiceNewPage() {
       ...service,
       id: 'new_service',
       name: '',
+      locationId: locations[0]?.id ?? service.locationId,
+      locationName: locations[0]?.name ?? service.locationName,
       status: 'draft',
       acceptPublicOrders: false,
       publicOrderClosureReason: '',
@@ -231,7 +256,7 @@ export function ServiceNewPage() {
       pausedUntil: null,
       pauseReason: null,
     }),
-    [service],
+    [locations, service],
   )
 
   return (
