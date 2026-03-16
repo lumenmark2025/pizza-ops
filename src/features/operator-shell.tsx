@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Card } from '../components/ui/card'
+import { SAFE_MODE } from '../lib/runtime-flags'
 import { cn, titleCase } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 
@@ -80,6 +81,11 @@ export function AppShell({ children }: PropsWithChildren) {
                 <MetricChip icon={TimerReset} label={service.delayMinutes ? `${service.delayMinutes}m delay` : titleCase(service.status)} tone={service.status === 'paused' ? 'warn' : 'ok'} />
               </div>
             </div>
+            {SAFE_MODE ? (
+              <div className="mt-3 inline-flex rounded-lg border border-amber-300/40 bg-amber-400/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-100">
+                SAFE MODE: realtime sync disabled
+              </div>
+            ) : null}
             <nav className="mt-4 flex flex-wrap gap-2">
               {[
                 { href: '/', label: 'Order Entry', icon: Pizza },

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { seedSnapshot } from '../data/seed'
 import { buildLoyversePayload } from '../integrations/loyverse'
 import { getOrderItemsTotal } from '../lib/order-calculations'
+import { SAFE_MODE } from '../lib/runtime-flags'
 import { allocateAcrossSlots, getAvailableSlots } from '../lib/slot-engine'
 import {
   canUseRealtimeSync,
@@ -316,7 +317,7 @@ function createDemoState(): ServiceSnapshot {
 }
 
 async function mirrorOrderToSupabase(order: Order) {
-  if (!supabase) {
+  if (SAFE_MODE || !supabase) {
     return
   }
 
@@ -333,7 +334,12 @@ async function mirrorOrderToSupabase(order: Order) {
 }
 
 function queueSnapshotSync(snapshot: ServiceSnapshot) {
-  if (applyingRemoteSnapshot || !canUseRealtimeSync() || !usePizzaOpsStore.getState().remoteReady) {
+  if (
+    SAFE_MODE ||
+    applyingRemoteSnapshot ||
+    !canUseRealtimeSync() ||
+    !usePizzaOpsStore.getState().remoteReady
+  ) {
     return
   }
 
@@ -366,9 +372,14 @@ export const usePizzaOpsStore = create<StoreState>()(
       return {
         ...createDemoState(),
         isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
-        remoteReady: false,
+        remoteReady: SAFE_MODE,
         setOnlineStatus: (status) => set({ isOnline: status }),
         hydrateRemote: async () => {
+          if (SAFE_MODE) {
+            set({ remoteReady: true })
+            return
+          }
+
           if (hydrateRemotePromise) {
             return hydrateRemotePromise
           }
@@ -406,6 +417,10 @@ export const usePizzaOpsStore = create<StoreState>()(
           return hydrateRemotePromise
         },
         startRealtime: () => {
+          if (SAFE_MODE) {
+            return null
+          }
+
           if (!canUseRealtimeSync()) {
             return null
           }

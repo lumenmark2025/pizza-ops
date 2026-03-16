@@ -5,6 +5,7 @@ import { AdminPage } from './features/admin-ops'
 import { ExpeditorPage, KdsPage, PaymentPage, CustomerBoardPage } from './features/ops-views'
 import { OrderEntryPage } from './features/operator-order-entry'
 import { AppShell } from './features/operator-shell'
+import { SAFE_MODE } from './lib/runtime-flags'
 import { usePizzaOpsStore } from './store/usePizzaOpsStore'
 
 function App() {
@@ -30,6 +31,12 @@ function App() {
     }
 
     bootstrapStartedRef.current = true
+    if (SAFE_MODE) {
+      console.info('[pizza-ops] SAFE_MODE enabled, skipping hydrate/realtime bootstrap')
+      usePizzaOpsStore.setState({ remoteReady: true })
+      return
+    }
+
     let stop: null | (() => void) = null
     console.info('[pizza-ops] hydration start')
     void hydrateRemote().then(() => {

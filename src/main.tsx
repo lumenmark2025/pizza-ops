@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App'
+import { SAFE_MODE } from './lib/runtime-flags'
 
 const SW_KILL_SWITCH_KEY = 'pizza_ops_sw_reset_v1'
 
@@ -31,7 +32,7 @@ async function runTemporaryServiceWorkerKillSwitch() {
 async function boot() {
   await runTemporaryServiceWorkerKillSwitch()
 
-  if ('serviceWorker' in navigator) {
+  if (!SAFE_MODE && 'serviceWorker' in navigator) {
     void navigator.serviceWorker.register('/sw.js')
   }
 
