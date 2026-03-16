@@ -30,9 +30,12 @@ async function runTemporaryServiceWorkerKillSwitch() {
 }
 
 async function boot() {
+  console.info('[pizza-ops] SAFE_MODE', SAFE_MODE)
   await runTemporaryServiceWorkerKillSwitch()
 
-  if (!SAFE_MODE && 'serviceWorker' in navigator) {
+  if (SAFE_MODE) {
+    console.info('[pizza-ops] service worker skipped')
+  } else if ('serviceWorker' in navigator) {
     void navigator.serviceWorker.register('/sw.js')
   }
 

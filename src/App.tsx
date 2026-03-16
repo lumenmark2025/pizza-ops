@@ -10,8 +10,6 @@ import { usePizzaOpsStore } from './store/usePizzaOpsStore'
 
 function App() {
   const setOnlineStatus = usePizzaOpsStore((state) => state.setOnlineStatus)
-  const hydrateRemote = usePizzaOpsStore((state) => state.hydrateRemote)
-  const startRealtime = usePizzaOpsStore((state) => state.startRealtime)
   const bootstrapStartedRef = useRef(false)
 
   useEffect(() => {
@@ -31,12 +29,15 @@ function App() {
     }
 
     bootstrapStartedRef.current = true
+    console.info('[pizza-ops] SAFE_MODE', SAFE_MODE)
     if (SAFE_MODE) {
-      console.info('[pizza-ops] SAFE_MODE enabled, skipping hydrate/realtime bootstrap')
+      console.info('[pizza-ops] hydrateRemote skipped')
+      console.info('[pizza-ops] startRealtime skipped')
       usePizzaOpsStore.setState({ remoteReady: true })
       return
     }
 
+    const { hydrateRemote, startRealtime } = usePizzaOpsStore.getState()
     let stop: null | (() => void) = null
     console.info('[pizza-ops] hydration start')
     void hydrateRemote().then(() => {
@@ -47,7 +48,7 @@ function App() {
     return () => {
       stop?.()
     }
-  }, [hydrateRemote, startRealtime])
+  }, [])
 
   return (
     <AppShell>
