@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase'
 import { addMinutes, combineDateAndTime, formatTime, toIsoNow } from '../lib/time'
 import type {
   ActivityLogEntry,
+  BrandingSettings,
   Customer,
   Ingredient,
   Location,
@@ -61,6 +62,7 @@ type StoreState = ServiceSnapshot & {
   resetDemo: () => void
   updateService: (updates: Partial<ServiceConfig>, actor: string) => void
   updateServiceLocations: (locations: string[], actor: string) => void
+  updateBranding: (branding: BrandingSettings, actor: string) => void
   upsertLocation: (location: Location, actor: string) => void
   createFreshService: (input: Partial<ServiceConfig>, actor: string, options?: { applyInventoryDefaults?: boolean }) => string
   loadServiceForEditing: (serviceId: string) => boolean
@@ -89,6 +91,7 @@ const SNAPSHOT_KEYS = [
   'services',
   'locations',
   'serviceLocations',
+  'branding',
   'ingredients',
   'menuItems',
   'recipes',
@@ -833,6 +836,15 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
+        updateBranding: (branding, actor) => {
+          commit((current) => ({
+            branding,
+            activityLog: [
+              createActivity('service_updated', actor, 'Updated public ordering branding.'),
+              ...current.activityLog,
+            ],
+          }))
+        },
         upsertLocation: (location, actor) => {
           const exists = get().locations.some((entry) => entry.id === location.id)
           commit((current) => ({
@@ -1106,6 +1118,7 @@ export const usePizzaOpsStore = create<StoreState>()(
         services: state.services,
         locations: state.locations,
         serviceLocations: state.serviceLocations,
+        branding: state.branding,
         ingredients: state.ingredients,
         menuItems: state.menuItems,
         recipes: state.recipes,

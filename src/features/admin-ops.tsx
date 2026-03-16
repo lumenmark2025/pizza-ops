@@ -11,23 +11,11 @@ import { formatDateTime, formatTime } from '../lib/time'
 import { titleCase } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 
-function StatPanel({
-  icon: Icon,
-  title,
-  value,
-  detail,
-}: {
-  icon: ComponentType<{ className?: string }>
-  title: string
-  value: string
-  detail: string
-}) {
+function StatPanel({ icon: Icon, title, value, detail }: { icon: ComponentType<{ className?: string }>; title: string; value: string; detail: string }) {
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex items-start gap-3">
-        <div className="rounded-2xl bg-orange-100 p-3 text-orange-700">
-          <Icon className="h-5 w-5" />
-        </div>
+        <div className="rounded-2xl bg-orange-100 p-3 text-orange-700"><Icon className="h-5 w-5" /></div>
         <div>
           <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{title}</p>
           <p className="mt-1 text-2xl font-bold">{value}</p>
@@ -85,26 +73,12 @@ export function ServiceEditPanel() {
     pizzasPerSlot: service.pizzasPerSlot,
   })
 
-  const inventorySummary = useMemo(
-    () => getInventorySummary(inventory, recipes, menuItems, orders),
-    [inventory, menuItems, orders, recipes],
-  )
-  const location = useMemo(
-    () => locations.find((entry) => entry.id === service.locationId),
-    [locations, service.locationId],
-  )
+  const inventorySummary = useMemo(() => getInventorySummary(inventory, recipes, menuItems, orders), [inventory, menuItems, orders, recipes])
+  const location = useMemo(() => locations.find((entry) => entry.id === service.locationId), [locations, service.locationId])
   const moveTarget = useMemo(() => orders.find((entry) => entry.id === moveOrderId), [moveOrderId, orders])
   const availableMoveSlots = useMemo(() => {
-    if (!moveTarget) {
-      return []
-    }
-
-    return getAvailableSlots(
-      service,
-      orders.filter((entry) => entry.id !== moveTarget.id),
-      moveTarget.items,
-      menuItems,
-    )
+    if (!moveTarget) return []
+    return getAvailableSlots(service, orders.filter((entry) => entry.id !== moveTarget.id), moveTarget.items, menuItems)
   }, [menuItems, moveTarget, orders, service])
   const fallbackMoveSlots = useMemo(() => generateServiceSlots(service), [service])
 
@@ -124,6 +98,21 @@ export function ServiceEditPanel() {
     })
   }, [service])
 
+  useEffect(() => {
+    if (!orders.length) {
+      setMoveOrderId('')
+      setPagerOrderId('')
+      return
+    }
+    if (!orders.some((entry) => entry.id === moveOrderId)) {
+      setMoveOrderId(orders[0].id)
+      setMoveTime(orders[0].promisedTime)
+    }
+    if (!orders.some((entry) => entry.id === pagerOrderId)) {
+      setPagerOrderId(orders[0].id)
+    }
+  }, [moveOrderId, orders, pagerOrderId])
+
   function handleMove(override: boolean) {
     const result = moveOrder(moveOrderId, moveTime, moveReason || 'Manual move', override)
     setMoveWarning(result.warning ?? (result.ok ? 'Order moved.' : 'Unable to move order.'))
@@ -133,7 +122,7 @@ export function ServiceEditPanel() {
     <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="grid gap-4">
         <div className="grid gap-4 lg:grid-cols-3">
-          <StatPanel icon={AlarmClockCheck} title="Service Window" value={`${service.startTime}-${service.endTime}`} detail={`${location?.name ?? service.locationName} · Last slot ${service.lastCollectionTime}`} />
+          <StatPanel icon={AlarmClockCheck} title="Service Window" value={`${service.startTime}-${service.endTime}`} detail={`${location?.name ?? service.locationName} - Last slot ${service.lastCollectionTime}`} />
           <StatPanel icon={TimerReset} title="Delay" value={`${service.delayMinutes} mins`} detail={service.pausedUntil ? `Paused until ${formatTime(service.pausedUntil)}` : titleCase(service.status)} />
           <StatPanel icon={CircleDollarSign} title="Payments" value={`${payments.filter((entry) => entry.status === 'paid').length} paid`} detail={`${payments.filter((entry) => entry.status === 'failed').length} failed`} />
         </div>
@@ -153,85 +142,19 @@ export function ServiceEditPanel() {
           <h2 className="font-display text-2xl font-bold">Service details</h2>
           <p className="mt-2 text-sm text-slate-500">Update the dated service session and public ordering controls.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Service name</span>
-              <Input value={serviceForm.name} onChange={(event) => setServiceForm((current) => ({ ...current, name: event.target.value }))} />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Location</span>
-              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.locationId} onChange={(event) => setServiceForm((current) => ({ ...current, locationId: event.target.value }))}>
-                {locations.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Service date</span>
-              <Input type="date" value={serviceForm.date} onChange={(event) => setServiceForm((current) => ({ ...current, date: event.target.value }))} />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Service status</span>
-              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.status} onChange={(event) => setServiceForm((current) => ({ ...current, status: event.target.value as typeof service.status }))}>
-                {['draft', 'live', 'paused', 'closed'].map((status) => (
-                  <option key={status} value={status}>
-                    {titleCase(status)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Start time</span>
-              <Input type="time" value={serviceForm.startTime} onChange={(event) => setServiceForm((current) => ({ ...current, startTime: event.target.value }))} />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">End time</span>
-              <Input type="time" value={serviceForm.endTime} onChange={(event) => setServiceForm((current) => ({ ...current, endTime: event.target.value }))} />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Last collection slot</span>
-              <Input type="time" value={serviceForm.lastCollectionTime} onChange={(event) => setServiceForm((current) => ({ ...current, lastCollectionTime: event.target.value }))} />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Slot length</span>
-              <Input type="number" value={serviceForm.slotSizeMinutes} onChange={(event) => setServiceForm((current) => ({ ...current, slotSizeMinutes: Number(event.target.value) }))} />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Pizzas per slot</span>
-              <Input type="number" value={serviceForm.pizzasPerSlot} onChange={(event) => setServiceForm((current) => ({ ...current, pizzasPerSlot: Number(event.target.value) }))} />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-semibold text-slate-600">Public ordering</span>
-              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.acceptPublicOrders ? 'open' : 'closed'} onChange={(event) => setServiceForm((current) => ({ ...current, acceptPublicOrders: event.target.value === 'open' }))}>
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm sm:col-span-2">
-              <span className="font-semibold text-slate-600">Public order closure reason</span>
-              <Textarea value={serviceForm.publicOrderClosureReason} placeholder="Shown on the customer ordering page when public orders are closed" onChange={(event) => setServiceForm((current) => ({ ...current, publicOrderClosureReason: event.target.value }))} />
-            </label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Service name</span><Input value={serviceForm.name} onChange={(event) => setServiceForm((current) => ({ ...current, name: event.target.value }))} /></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Location</span><select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.locationId} onChange={(event) => setServiceForm((current) => ({ ...current, locationId: event.target.value }))}>{locations.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Service date</span><Input type="date" value={serviceForm.date} onChange={(event) => setServiceForm((current) => ({ ...current, date: event.target.value }))} /></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Service status</span><select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.status} onChange={(event) => setServiceForm((current) => ({ ...current, status: event.target.value as typeof service.status }))}>{['draft', 'live', 'paused', 'closed'].map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Start time</span><Input type="time" value={serviceForm.startTime} onChange={(event) => setServiceForm((current) => ({ ...current, startTime: event.target.value }))} /></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">End time</span><Input type="time" value={serviceForm.endTime} onChange={(event) => setServiceForm((current) => ({ ...current, endTime: event.target.value }))} /></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Last collection slot</span><Input type="time" value={serviceForm.lastCollectionTime} onChange={(event) => setServiceForm((current) => ({ ...current, lastCollectionTime: event.target.value }))} /></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Slot length</span><Input type="number" value={serviceForm.slotSizeMinutes} onChange={(event) => setServiceForm((current) => ({ ...current, slotSizeMinutes: Number(event.target.value) }))} /></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Pizzas per slot</span><Input type="number" value={serviceForm.pizzasPerSlot} onChange={(event) => setServiceForm((current) => ({ ...current, pizzasPerSlot: Number(event.target.value) }))} /></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Public ordering</span><select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.acceptPublicOrders ? 'open' : 'closed'} onChange={(event) => setServiceForm((current) => ({ ...current, acceptPublicOrders: event.target.value === 'open' }))}><option value="open">Open</option><option value="closed">Closed</option></select></label>
+            <label className="grid gap-2 text-sm sm:col-span-2"><span className="font-semibold text-slate-600">Public order closure reason</span><Textarea value={serviceForm.publicOrderClosureReason} placeholder="Shown on the customer ordering page when public orders are closed" onChange={(event) => setServiceForm((current) => ({ ...current, publicOrderClosureReason: event.target.value }))} /></label>
           </div>
-          <Button
-            className="mt-4"
-            onClick={() =>
-              updateService(
-                {
-                  ...serviceForm,
-                  locationName:
-                    locations.find((entry) => entry.id === serviceForm.locationId)?.name ??
-                    service.locationName,
-                  publicOrderClosureReason: serviceForm.acceptPublicOrders
-                    ? null
-                    : serviceForm.publicOrderClosureReason || 'Public ordering temporarily closed',
-                },
-                'manager',
-              )
-            }
-          >
-            Save service changes
-          </Button>
+          <Button className="mt-4" onClick={() => updateService({ ...serviceForm, locationName: locations.find((entry) => entry.id === serviceForm.locationId)?.name ?? service.locationName, publicOrderClosureReason: serviceForm.acceptPublicOrders ? null : serviceForm.publicOrderClosureReason || 'Public ordering temporarily closed' }, 'manager')}>Save service changes</Button>
         </Card>
 
         <Card className="p-4 sm:p-5">
@@ -240,12 +163,8 @@ export function ServiceEditPanel() {
             <Input type="number" value={delayMinutes} onChange={(event) => setDelayMinutes(Number(event.target.value))} />
             <Button onClick={() => addDelay(delayMinutes, 'manager', reason || 'Operational delay')}>Add delay to future orders</Button>
             <Input type="number" value={pauseMinutes} onChange={(event) => setPauseMinutes(Number(event.target.value))} />
-            <Button variant="secondary" onClick={() => pauseService(pauseMinutes, 'manager', reason || 'Service pause')}>
-              Pause service
-            </Button>
-            <div className="sm:col-span-2">
-              <Textarea value={reason} placeholder="Reason for delay or pause" onChange={(event) => setReason(event.target.value)} />
-            </div>
+            <Button variant="secondary" onClick={() => pauseService(pauseMinutes, 'manager', reason || 'Service pause')}>Pause service</Button>
+            <div className="sm:col-span-2"><Textarea value={reason} placeholder="Reason for delay or pause" onChange={(event) => setReason(event.target.value)} /></div>
           </div>
         </Card>
 
@@ -259,9 +178,7 @@ export function ServiceEditPanel() {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="font-semibold">{ingredient?.name ?? entry.ingredientId}</p>
-                      <p className="text-sm text-slate-500">
-                        Reserved {entry.committed} · Remaining {entry.remaining}
-                      </p>
+                      <p className="text-sm text-slate-500">Reserved {entry.committed} - Remaining {entry.remaining}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="outline" onClick={() => adjustInventoryQuantity(entry.ingredientId, -1, 'manager')}>-</Button>
@@ -277,10 +194,7 @@ export function ServiceEditPanel() {
 
         <Card className="p-4 sm:p-5">
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-2xl font-bold">Default service inventory</h2>
-              <p className="mt-1 text-sm text-slate-500">Standard van load-out used when opening a fresh service.</p>
-            </div>
+            <div><h2 className="font-display text-2xl font-bold">Default service inventory</h2><p className="mt-1 text-sm text-slate-500">Standard van load-out used when opening a fresh service.</p></div>
             <Button variant="secondary" onClick={() => applyInventoryDefaults('manager')}>Apply defaults to service</Button>
           </div>
           <div className="mt-4 space-y-3">
@@ -288,10 +202,7 @@ export function ServiceEditPanel() {
               const ingredient = ingredients.find((item) => item.id === entry.ingredientId)
               return (
                 <div key={entry.ingredientId} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
-                  <div>
-                    <p className="font-semibold">{ingredient?.name ?? entry.ingredientId}</p>
-                    <p className="text-sm text-slate-500">Editable default amount</p>
-                  </div>
+                  <div><p className="font-semibold">{ingredient?.name ?? entry.ingredientId}</p><p className="text-sm text-slate-500">Editable default amount</p></div>
                   <Input className="w-28 text-center" type="number" value={entry.quantity} onChange={(event) => setInventoryDefaultQuantity(entry.ingredientId, Number(event.target.value), 'manager')} />
                 </div>
               )
@@ -305,35 +216,17 @@ export function ServiceEditPanel() {
           <h2 className="font-display text-2xl font-bold">Global menu and modifiers</h2>
           <p className="mt-2 text-sm text-slate-500">Menu, ingredients, and modifiers are managed globally outside this service.</p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link to="/admin/menu">
-              <Button variant="secondary">Open menu</Button>
-            </Link>
-            <Link to="/admin/ingredients">
-              <Button variant="secondary">Open ingredients</Button>
-            </Link>
-            <Link to="/admin/modifiers">
-              <Button variant="secondary">Open modifiers</Button>
-            </Link>
+            <Link to="/admin/menu"><Button variant="secondary">Open menu</Button></Link>
+            <Link to="/admin/ingredients"><Button variant="secondary">Open ingredients</Button></Link>
+            <Link to="/admin/modifiers"><Button variant="secondary">Open modifiers</Button></Link>
           </div>
         </Card>
 
         <Card className="p-4 sm:p-5">
           <h2 className="font-display text-2xl font-bold">Manual reslot and pager desk</h2>
           <div className="mt-4 grid gap-3">
-            <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={moveOrderId} onChange={(event) => setMoveOrderId(event.target.value)}>
-              {orders.map((order) => (
-                <option key={order.id} value={order.id}>
-                  {order.reference} - {order.customerId}
-                </option>
-              ))}
-            </select>
-            <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={moveTime} onChange={(event) => setMoveTime(event.target.value)}>
-              {(availableMoveSlots.length ? availableMoveSlots.map((slot) => slot.promisedTime) : fallbackMoveSlots).map((slot) => (
-                <option key={slot} value={slot}>
-                  {formatTime(slot)}
-                </option>
-              ))}
-            </select>
+            <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={moveOrderId} onChange={(event) => setMoveOrderId(event.target.value)}>{orders.map((order) => <option key={order.id} value={order.id}>{order.reference} - {order.customerId}</option>)}</select>
+            <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={moveTime} onChange={(event) => setMoveTime(event.target.value)}>{(availableMoveSlots.length ? availableMoveSlots.map((slot) => slot.promisedTime) : fallbackMoveSlots).map((slot) => <option key={slot} value={slot}>{formatTime(slot)}</option>)}</select>
             <Textarea value={moveReason} placeholder="Reason for manual move" onChange={(event) => setMoveReason(event.target.value)} />
             <div className="flex gap-2">
               <Button onClick={() => handleMove(false)}>Move order</Button>
@@ -341,13 +234,7 @@ export function ServiceEditPanel() {
             </div>
             {moveWarning ? <p className="text-sm text-slate-500">{moveWarning}</p> : null}
             <div className="border-t border-slate-200 pt-3">
-              <select className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3" value={pagerOrderId} onChange={(event) => setPagerOrderId(event.target.value)}>
-                {orders.map((order) => (
-                  <option key={order.id} value={order.id}>
-                    {order.reference} - {order.customerId}
-                  </option>
-                ))}
-              </select>
+              <select className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3" value={pagerOrderId} onChange={(event) => setPagerOrderId(event.target.value)}>{orders.map((order) => <option key={order.id} value={order.id}>{order.reference} - {order.customerId}</option>)}</select>
               <div className="mt-3 flex gap-2">
                 <Input value={pagerValue} placeholder="Pager number" onChange={(event) => setPagerValue(event.target.value)} />
                 <Button onClick={() => assignPager(pagerOrderId, pagerValue ? Number(pagerValue) : null, 'manager')}>Assign pager</Button>
@@ -366,16 +253,10 @@ export function ServiceEditPanel() {
               <div key={entry.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold">{entry.orderId}</p>
-                  <Badge variant={entry.status === 'failed' ? 'red' : entry.status === 'synced' ? 'green' : 'amber'}>
-                    {entry.status}
-                  </Badge>
+                  <Badge variant={entry.status === 'failed' ? 'red' : entry.status === 'synced' ? 'green' : 'amber'}>{entry.status}</Badge>
                 </div>
-                <p className="mt-1 text-sm text-slate-500">
-                  Attempts {entry.attempts} {entry.lastError ? `· ${entry.lastError}` : ''}
-                </p>
-                <Button className="mt-3" size="sm" variant="secondary" onClick={() => retryLoyverseSync(entry.id)}>
-                  Retry sync
-                </Button>
+                <p className="mt-1 text-sm text-slate-500">Attempts {entry.attempts}{entry.lastError ? ` - ${entry.lastError}` : ''}</p>
+                <Button className="mt-3" size="sm" variant="secondary" onClick={() => retryLoyverseSync(entry.id)}>Retry sync</Button>
               </div>
             ))}
           </div>
@@ -406,43 +287,55 @@ export function AdminPage() {
   const orders = usePizzaOpsStore((state) => state.orders)
   const payments = usePizzaOpsStore((state) => state.payments)
   const loyverseQueue = usePizzaOpsStore((state) => state.loyverseQueue)
+  const branding = usePizzaOpsStore((state) => state.branding)
+  const updateBranding = usePizzaOpsStore((state) => state.updateBranding)
   const syncIssues = loyverseQueue.filter((entry) => entry.status === 'failed').length
+  const [brandingForm, setBrandingForm] = useState(branding)
+
+  useEffect(() => {
+    setBrandingForm(branding)
+  }, [branding])
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+    <div className="grid gap-4">
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <Card className="p-5 sm:p-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Ops Dashboard</p>
+          <h2 className="mt-2 font-display text-3xl font-bold">Admin overview</h2>
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">Use services for dated trading sessions, locations for reusable popups, and menu, ingredients, and modifiers as global configuration.</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link to="/admin/services"><Button>Open services</Button></Link>
+            <Link to="/admin/locations"><Button variant="secondary">Open locations</Button></Link>
+            <Link to="/admin/menu"><Button variant="secondary">Open menu</Button></Link>
+            <Link to="/admin/ingredients"><Button variant="secondary">Open ingredients</Button></Link>
+            <Link to="/admin/modifiers"><Button variant="secondary">Open modifiers</Button></Link>
+            <Link to={`/admin/services/${service.id}`}><Button variant="outline">Open active service</Button></Link>
+          </div>
+        </Card>
+        <div className="grid gap-4">
+          <StatPanel icon={AlarmClockCheck} title="Services" value={`${services.length}`} detail={`${services.filter((entry) => entry.status === 'live').length} live`} />
+          <StatPanel icon={CircleDollarSign} title="Orders" value={`${orders.length}`} detail={`${payments.filter((entry) => entry.status === 'paid').length} paid payments`} />
+          <StatPanel icon={TimerReset} title="Sync issues" value={`${syncIssues}`} detail="Failed Loyverse queue entries" />
+        </div>
+      </div>
+
       <Card className="p-5 sm:p-6">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Ops Dashboard</p>
-        <h2 className="mt-2 font-display text-3xl font-bold">Admin overview</h2>
-        <p className="mt-2 max-w-2xl text-sm text-slate-500">
-          Use services for dated trading sessions, locations for reusable popups, and menu, ingredients, and modifiers as global configuration.
-        </p>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Customer Ordering Brand</p>
+        <h2 className="mt-2 font-display text-3xl font-bold">Logo, intro copy, and colors</h2>
+        <p className="mt-2 max-w-3xl text-sm text-slate-500">Control the public ordering CTA text, top intro message, logo area, and public-facing color scheme here.</p>
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Logo URL</span><Input value={brandingForm.logoUrl} onChange={(event) => setBrandingForm((current) => ({ ...current, logoUrl: event.target.value }))} /></label>
+          <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">CTA button text</span><Input value={brandingForm.orderCtaLabel} onChange={(event) => setBrandingForm((current) => ({ ...current, orderCtaLabel: event.target.value }))} /></label>
+          <label className="grid gap-2 text-sm lg:col-span-2"><span className="font-semibold text-slate-600">Intro text</span><Textarea value={brandingForm.introText} onChange={(event) => setBrandingForm((current) => ({ ...current, introText: event.target.value }))} /></label>
+          <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Primary color</span><Input value={brandingForm.primaryColor} onChange={(event) => setBrandingForm((current) => ({ ...current, primaryColor: event.target.value }))} /></label>
+          <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Secondary background color</span><Input value={brandingForm.secondaryColor} onChange={(event) => setBrandingForm((current) => ({ ...current, secondaryColor: event.target.value }))} /></label>
+          <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Accent text color</span><Input value={brandingForm.accentTextColor} onChange={(event) => setBrandingForm((current) => ({ ...current, accentTextColor: event.target.value }))} /></label>
+        </div>
         <div className="mt-5 flex flex-wrap gap-3">
-          <Link to="/admin/services">
-            <Button>Open services</Button>
-          </Link>
-          <Link to="/admin/locations">
-            <Button variant="secondary">Open locations</Button>
-          </Link>
-          <Link to="/admin/menu">
-            <Button variant="secondary">Open menu</Button>
-          </Link>
-          <Link to="/admin/ingredients">
-            <Button variant="secondary">Open ingredients</Button>
-          </Link>
-          <Link to="/admin/modifiers">
-            <Button variant="secondary">Open modifiers</Button>
-          </Link>
-          <Link to={`/admin/services/${service.id}`}>
-            <Button variant="outline">Open active service</Button>
-          </Link>
+          <Button onClick={() => updateBranding(brandingForm, 'manager')}>Save public brand</Button>
+          <Button variant="outline" onClick={() => setBrandingForm(branding)}>Reset form</Button>
         </div>
       </Card>
-
-      <div className="grid gap-4">
-        <StatPanel icon={AlarmClockCheck} title="Services" value={`${services.length}`} detail={`${services.filter((entry) => entry.status === 'live').length} live`} />
-        <StatPanel icon={CircleDollarSign} title="Orders" value={`${orders.length}`} detail={`${payments.filter((entry) => entry.status === 'paid').length} paid payments`} />
-        <StatPanel icon={TimerReset} title="Sync issues" value={`${syncIssues}`} detail="Failed Loyverse queue entries" />
-      </div>
     </div>
   )
 }

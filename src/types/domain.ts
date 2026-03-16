@@ -79,6 +79,15 @@ export type Modifier = {
   appliesToAllPizzas?: boolean
 }
 
+export type BrandingSettings = {
+  logoUrl: string
+  introText: string
+  orderCtaLabel: string
+  primaryColor: string
+  secondaryColor: string
+  accentTextColor: string
+}
+
 export type OrderItemModifier = {
   modifierId: string
   name: string
@@ -203,6 +212,7 @@ export type ServiceSnapshot = {
   services: ServiceConfig[]
   locations: Location[]
   serviceLocations: string[]
+  branding: BrandingSettings
   ingredients: Ingredient[]
   menuItems: MenuItem[]
   recipes: MenuItemRecipe[]

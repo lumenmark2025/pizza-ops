@@ -134,6 +134,15 @@ export const seedSnapshot: ServiceSnapshot = {
     'Burton in Lonsdale',
     'Slyne',
   ],
+  branding: {
+    logoUrl: '',
+    introText:
+      'Finalists Best Pizzeria, Pizza Chef of the Year. Amazing Popup Pizza and weddings or events near you.',
+    orderCtaLabel: 'Order now',
+    primaryColor: '#ea580c',
+    secondaryColor: '#fff7ed',
+    accentTextColor: '#9a3412',
+  },
   ingredients: [
     { id: 'dough_ball', name: 'Dough Ball', unit: 'ball', lowStockThreshold: 12, active: true },
     { id: 'mozzarella', name: 'Mozzarella', unit: 'g', lowStockThreshold: 1200, active: true },

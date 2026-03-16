@@ -126,17 +126,31 @@ function CustomerShell({
   eyebrow: string
   children: React.ReactNode
 }) {
+  const branding = usePizzaOpsStore((state) => state.branding)
+  const resolvedTitle = eyebrow === 'Public Ordering' ? 'Order now' : title
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#fde7d6,transparent_30%),linear-gradient(180deg,#fffdf8_0%,#fff7ed_100%)] px-4 py-6 text-slate-950 sm:px-6">
+    <div
+      className="min-h-screen px-4 py-6 text-slate-950 sm:px-6"
+      style={{
+        background: `radial-gradient(circle at top, ${branding.secondaryColor}, transparent 30%), linear-gradient(180deg, #fffdf8 0%, ${branding.secondaryColor} 100%)`,
+      }}
+    >
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 rounded-[28px] border border-white/70 bg-white/85 px-5 py-6 shadow-[0_30px_80px_rgba(15,23,42,0.08)] backdrop-blur sm:px-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-orange-600">{eyebrow}</p>
+          <div className="min-h-16">
+            {branding.logoUrl ? (
+              <img src={branding.logoUrl} alt="Brand logo" className="h-16 w-auto object-contain" />
+            ) : null}
+          </div>
+          {eyebrow && eyebrow !== 'Public Ordering' ? (
+            <p className="text-xs font-semibold uppercase tracking-[0.35em]" style={{ color: branding.accentTextColor }}>
+              {eyebrow}
+            </p>
+          ) : null}
           <h1 className="mt-2 font-display text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
-            {title}
+            {resolvedTitle}
           </h1>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Fresh wood-fired pizza, clear collection times, and the right pickup location every time.
-          </p>
+          <p className="mt-3 max-w-2xl text-sm text-slate-600">{branding.introText}</p>
         </div>
         {children}
       </div>
@@ -288,6 +302,7 @@ function PizzaEditor({
 export function CustomerOrderPage() {
   const eligibleServices = useEligibleServices()
   const locations = usePizzaOpsStore((state) => state.locations)
+  const branding = usePizzaOpsStore((state) => state.branding)
 
   return (
     <CustomerShell eyebrow="Public Ordering" title="Choose where you’re collecting from">
@@ -318,7 +333,9 @@ export function CustomerOrderPage() {
                       : 'Pre-orders are available.'
                     : service.publicOrderClosureReason ?? 'Not currently accepting orders.'}
                 </p>
-                <Button variant="secondary">Select service</Button>
+                <Button variant="secondary" style={{ backgroundColor: branding.primaryColor, color: '#fff', borderColor: branding.primaryColor }}>
+                  {branding.orderCtaLabel}
+                </Button>
               </div>
             </Link>
           )
