@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { seedSnapshot } from '../data/seed'
 import { buildLoyversePayload } from '../integrations/loyverse'
+import { normalizeMenuItem } from '../lib/menu'
 import { getOrderItemsTotal } from '../lib/order-calculations'
 import { SAFE_MODE } from '../lib/runtime-flags'
 import { allocateAcrossSlots, getAvailableSlots } from '../lib/slot-engine'
@@ -150,6 +151,13 @@ function getPersistableSnapshot(state: ServiceSnapshot) {
   return snapshot
 }
 
+function normalizeSnapshot(snapshot: ServiceSnapshot): ServiceSnapshot {
+  return {
+    ...snapshot,
+    menuItems: snapshot.menuItems.map(normalizeMenuItem),
+  }
+}
+
 function shiftOrder(order: Order, minutes: number) {
   return {
     ...order,
@@ -162,7 +170,8 @@ function shiftOrder(order: Order, minutes: number) {
 }
 
 function createDemoState(): ServiceSnapshot {
-  const serviceStart = combineDateAndTime(seedSnapshot.service.date, seedSnapshot.service.startTime)
+  const baseSnapshot = normalizeSnapshot(seedSnapshot)
+  const serviceStart = combineDateAndTime(baseSnapshot.service.date, baseSnapshot.service.startTime)
   const orders: Order[] = [
     {
       id: 'order_1',
@@ -258,7 +267,7 @@ function createDemoState(): ServiceSnapshot {
   ]
 
   return {
-    ...seedSnapshot,
+    ...baseSnapshot,
     orders,
     payments: [
       {
@@ -418,13 +427,14 @@ export const usePizzaOpsStore = create<StoreState>()(
             const current = getPersistableSnapshot(get())
             const remote = await loadRemoteSnapshot(current.service.id)
             if (remote) {
+              const normalizedRemote = normalizeSnapshot(remote)
               const localSnapshot = getPersistableSnapshot(get())
-              const remoteJson = JSON.stringify(remote)
+              const remoteJson = JSON.stringify(normalizedRemote)
               const localJson = JSON.stringify(localSnapshot)
 
               if (remoteJson !== localJson) {
                 applyingRemoteSnapshot = true
-                set({ ...remote, remoteReady: true })
+                set({ ...normalizedRemote, remoteReady: true })
                 applyingRemoteSnapshot = false
               } else {
                 set({ remoteReady: true })
@@ -458,13 +468,14 @@ export const usePizzaOpsStore = create<StoreState>()(
           stopRealtimeSubscription?.()
           activeRealtimeServiceId = serviceId
           const stop = subscribeToRemoteSnapshot(serviceId, (snapshot) => {
+            const normalizedSnapshot = normalizeSnapshot(snapshot)
             const currentSnapshot = getPersistableSnapshot(get())
-            if (JSON.stringify(currentSnapshot) === JSON.stringify(snapshot)) {
+            if (JSON.stringify(currentSnapshot) === JSON.stringify(normalizedSnapshot)) {
               return
             }
 
             applyingRemoteSnapshot = true
-            set({ ...snapshot })
+            set({ ...normalizedSnapshot })
             applyingRemoteSnapshot = false
           })
           stopRealtimeSubscription = stop
@@ -486,11 +497,11 @@ export const usePizzaOpsStore = create<StoreState>()(
         },
         createOrder: (input) => {
           const state = get()
-          const pizzaCount = input.items.reduce((count, item) => {
+          const capacityUnits = input.items.reduce((count, item) => {
             const menuItem = state.menuItems.find((entry) => entry.id === item.menuItemId)
-            return menuItem?.category === 'pizza' ? count + item.quantity : count
+            return menuItem ? count + item.quantity : count
           }, 0)
-          const allocation = allocateAcrossSlots(state.service, state.orders, input.promisedTime, pizzaCount)
+          const allocation = allocateAcrossSlots(state.service, state.orders, input.promisedTime, capacityUnits)
 
           if (!allocation.ok) {
             return { ok: false as const, error: allocation.warning }
@@ -524,7 +535,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             promisedTime: input.promisedTime,
             slotAllocations: allocation.allocations,
             pagerNumber: input.pagerNumber ?? null,
-            pizzaCount,
+            pizzaCount: capacityUnits,
             totalAmount,
             paymentStatus,
             paymentMethod: input.paymentMethod,
@@ -1036,17 +1047,18 @@ export const usePizzaOpsStore = create<StoreState>()(
           }))
         },
         upsertMenuItem: (menuItem, recipeRows, actor) => {
+          const normalizedMenuItem = normalizeMenuItem(menuItem)
           const exists = get().menuItems.some((entry) => entry.id === menuItem.id)
           commit((current) => ({
             menuItems: exists
-              ? current.menuItems.map((entry) => (entry.id === menuItem.id ? menuItem : entry))
-              : [...current.menuItems, menuItem],
+              ? current.menuItems.map((entry) => (entry.id === normalizedMenuItem.id ? normalizedMenuItem : entry))
+              : [...current.menuItems, normalizedMenuItem],
             recipes: [
-              ...current.recipes.filter((entry) => entry.menuItemId !== menuItem.id),
+              ...current.recipes.filter((entry) => entry.menuItemId !== normalizedMenuItem.id),
               ...recipeRows.filter((entry) => entry.quantity > 0),
             ],
             activityLog: [
-              createActivity('service_updated', actor, `${exists ? 'Updated' : 'Added'} menu item ${menuItem.name}.`),
+              createActivity('service_updated', actor, `${exists ? 'Updated' : 'Added'} menu item ${normalizedMenuItem.name}.`),
               ...current.activityLog,
             ],
           }))
@@ -1113,6 +1125,17 @@ export const usePizzaOpsStore = create<StoreState>()(
     },
     {
       name: 'pizza-ops-mvp',
+      merge: (persistedState, currentState) => {
+        const mergedState = {
+          ...currentState,
+          ...(persistedState as Partial<StoreState>),
+        } as StoreState
+
+        return {
+          ...mergedState,
+          ...normalizeSnapshot(mergedState),
+        }
+      },
       partialize: (state) => ({
         service: state.service,
         services: state.services,

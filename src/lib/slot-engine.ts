@@ -23,10 +23,10 @@ function hasValidServiceWindow(service?: ServiceConfig | null): service is Servi
   )
 }
 
-function getPizzaCount(items: OrderItem[], menuItems: MenuItem[]) {
+function getCapacityUnits(items: OrderItem[], menuItems: MenuItem[]) {
   return items.reduce((count, item) => {
     const menuItem = menuItems.find((entry) => entry.id === item.menuItemId)
-    return menuItem?.category === 'pizza' ? count + item.quantity : count
+    return menuItem ? count + item.quantity : count
   }, 0)
 }
 
@@ -73,14 +73,14 @@ export function allocateAcrossSlots(
   service: ServiceConfig,
   orders: Order[],
   promisedTime: string,
-  pizzaCount: number,
+  capacityUnits: number,
 ) {
   const slots = generateServiceSlots(service)
   if (!slots.length || !promisedTime) {
     return { ok: false as const, warning: 'Service slots are not available yet.' }
   }
 
-  if (pizzaCount <= 0) {
+  if (capacityUnits <= 0) {
     return { ok: true as const, allocations: [] }
   }
 
@@ -91,7 +91,7 @@ export function allocateAcrossSlots(
     return { ok: false as const, warning: 'Selected slot is outside the service window.' }
   }
 
-  let remaining = pizzaCount
+  let remaining = capacityUnits
   const allocations: SlotAllocation[] = []
 
   for (let index = endIndex; index >= 0 && remaining > 0; index -= 1) {
@@ -111,7 +111,7 @@ export function allocateAcrossSlots(
   if (remaining > 0) {
     return {
       ok: false as const,
-      warning: `Need ${remaining} more pizza capacity before ${promisedTime}.`,
+      warning: `Need ${remaining} more item capacity before ${promisedTime}.`,
     }
   }
 
@@ -128,11 +128,7 @@ export function getAvailableSlots(
     return []
   }
 
-  const pizzaCount = getPizzaCount(items, menuItems)
-  if (pizzaCount <= 0) {
-    return []
-  }
-
+  const capacityUnits = getCapacityUnits(items, menuItems)
   const slots = generateServiceSlots(service)
   if (!slots.length) {
     return []
@@ -142,12 +138,27 @@ export function getAvailableSlots(
     ? addMinutes(service.pausedUntil, service.delayMinutes)
     : addMinutes(combineDateAndTime(service.date, service.startTime), service.delayMinutes)
 
+  if (capacityUnits <= 0) {
+    return slots.reduce<SlotAvailability[]>((accumulator, slot) => {
+      if (!isAfterOrEqual(slot, earliestTime)) {
+        return accumulator
+      }
+
+      accumulator.push({
+        promisedTime: slot,
+        remainingCapacity: service.pizzasPerSlot,
+        allocations: [],
+      })
+      return accumulator
+    }, [])
+  }
+
   return slots.reduce<SlotAvailability[]>((accumulator, slot) => {
     if (!isAfterOrEqual(slot, earliestTime)) {
       return accumulator
     }
 
-    const allocation = allocateAcrossSlots(service, orders, slot, pizzaCount)
+    const allocation = allocateAcrossSlots(service, orders, slot, capacityUnits)
     if (!allocation.ok) {
       return accumulator
     }

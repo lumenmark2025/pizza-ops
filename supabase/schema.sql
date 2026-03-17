@@ -1,8 +1,33 @@
+create extension if not exists pgcrypto;
+
+create table if not exists locations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  address_line_1 text not null default '',
+  address_line_2 text,
+  town_city text not null default '',
+  postcode text not null default '',
+  notes text,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_locations_name_unique
+  on locations (lower(name));
+
+create index if not exists idx_locations_active
+  on locations (active);
+
 create table if not exists services (
   id text primary key,
   name text not null,
   service_date date not null,
+  location_name text,
+  location_id uuid references locations(id) on delete set null,
   status text not null default 'draft',
+  accept_public_orders boolean not null default true,
+  public_order_closure_reason text,
   start_time time not null,
   end_time time not null,
   last_collection_time time not null,
@@ -13,21 +38,36 @@ create table if not exists services (
   pause_reason text
 );
 
+create index if not exists idx_services_location_id
+  on services (location_id);
+
 create table if not exists ingredients (
   id text primary key,
   name text not null,
   unit text not null,
-  low_stock_threshold numeric not null default 0
+  low_stock_threshold numeric not null default 0,
+  active boolean not null default true
 );
 
 create table if not exists menu_items (
   id text primary key,
   name text not null,
-  category text not null,
+  category text,
+  category_slug text,
+  sort_order integer not null default 0,
+  chilli_rating integer not null default 0 check (chilli_rating in (0, 1, 2, 3)),
+  image_url text,
   price numeric not null,
+  active boolean not null default true,
   loyverse_item_id text,
   description text
 );
+
+create index if not exists idx_menu_items_category_slug
+  on menu_items (category_slug);
+
+create index if not exists idx_menu_items_sort_order
+  on menu_items (category_slug, sort_order);
 
 create table if not exists menu_item_recipes (
   menu_item_id text references menu_items(id),

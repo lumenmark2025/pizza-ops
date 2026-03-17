@@ -28,8 +28,12 @@
         {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "nullable": "NO"},
         {"name": "name", "type": "text", "default": null, "nullable": "NO"},
         {"name": "category", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "category_slug", "type": "text", "default": null, "nullable": "YES"},
         {"name": "description", "type": "text", "default": null, "nullable": "YES"},
         {"name": "base_price_pence", "type": "integer", "default": "0", "nullable": "NO"},
+        {"name": "sort_order", "type": "integer", "default": "0", "nullable": "NO"},
+        {"name": "chilli_rating", "type": "integer", "default": "0", "nullable": "NO"},
+        {"name": "image_url", "type": "text", "default": null, "nullable": "YES"},
         {"name": "is_pizza", "type": "boolean", "default": "true", "nullable": "NO"},
         {"name": "active", "type": "boolean", "default": "true", "nullable": "NO"},
         {"name": "loyverse_item_id", "type": "text", "default": null, "nullable": "YES"},
@@ -39,7 +43,9 @@
       "indexes": [
         {"index_name": "menu_items_pkey", "definition": "CREATE UNIQUE INDEX menu_items_pkey ON public.menu_items USING btree (id)"},
         {"index_name": "idx_menu_items_active", "definition": "CREATE INDEX idx_menu_items_active ON public.menu_items USING btree (active)"},
-        {"index_name": "idx_menu_items_category", "definition": "CREATE INDEX idx_menu_items_category ON public.menu_items USING btree (category)"}
+        {"index_name": "idx_menu_items_category", "definition": "CREATE INDEX idx_menu_items_category ON public.menu_items USING btree (category)"},
+        {"index_name": "idx_menu_items_category_slug", "definition": "CREATE INDEX idx_menu_items_category_slug ON public.menu_items USING btree (category_slug)"},
+        {"index_name": "idx_menu_items_sort_order", "definition": "CREATE INDEX idx_menu_items_sort_order ON public.menu_items USING btree (category_slug, sort_order)"}
       ],
       "foreign_keys": null
     },
@@ -92,11 +98,14 @@
         {"name": "name", "type": "text", "default": null, "nullable": "NO"},
         {"name": "service_date", "type": "date", "default": null, "nullable": "NO"},
         {"name": "location_name", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "location_id", "type": "uuid", "default": null, "nullable": "YES"},
         {"name": "start_time", "type": "timestamp with time zone", "default": null, "nullable": "NO"},
         {"name": "end_time", "type": "timestamp with time zone", "default": null, "nullable": "NO"},
         {"name": "slot_minutes", "type": "integer", "default": "5", "nullable": "NO"},
         {"name": "pizzas_per_slot", "type": "integer", "default": "3", "nullable": "NO"},
         {"name": "status", "type": "text", "default": "'draft'::text", "nullable": "NO"},
+        {"name": "accept_public_orders", "type": "boolean", "default": "true", "nullable": "NO"},
+        {"name": "public_order_closure_reason", "type": "text", "default": null, "nullable": "YES"},
         {"name": "pause_until", "type": "timestamp with time zone", "default": null, "nullable": "YES"},
         {"name": "pause_reason", "type": "text", "default": null, "nullable": "YES"},
         {"name": "notes", "type": "text", "default": null, "nullable": "YES"},
@@ -106,7 +115,32 @@
       "indexes": [
         {"index_name": "services_pkey", "definition": "CREATE UNIQUE INDEX services_pkey ON public.services USING btree (id)"},
         {"index_name": "idx_services_service_date", "definition": "CREATE INDEX idx_services_service_date ON public.services USING btree (service_date)"},
-        {"index_name": "idx_services_status", "definition": "CREATE INDEX idx_services_status ON public.services USING btree (status)"}
+        {"index_name": "idx_services_status", "definition": "CREATE INDEX idx_services_status ON public.services USING btree (status)"},
+        {"index_name": "idx_services_location_id", "definition": "CREATE INDEX idx_services_location_id ON public.services USING btree (location_id)"}
+      ],
+      "foreign_keys": [
+        {"column": "location_id", "references_table": "locations", "references_column": "id"}
+      ]
+    },
+    {
+      "table_name": "locations",
+      "primary_key": ["id"],
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "nullable": "NO"},
+        {"name": "name", "type": "text", "default": null, "nullable": "NO"},
+        {"name": "address_line_1", "type": "text", "default": "''::text", "nullable": "NO"},
+        {"name": "address_line_2", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "town_city", "type": "text", "default": "''::text", "nullable": "NO"},
+        {"name": "postcode", "type": "text", "default": "''::text", "nullable": "NO"},
+        {"name": "notes", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "active", "type": "boolean", "default": "true", "nullable": "NO"},
+        {"name": "created_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"},
+        {"name": "updated_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"}
+      ],
+      "indexes": [
+        {"index_name": "locations_pkey", "definition": "CREATE UNIQUE INDEX locations_pkey ON public.locations USING btree (id)"},
+        {"index_name": "idx_locations_name_unique", "definition": "CREATE UNIQUE INDEX idx_locations_name_unique ON public.locations USING btree (lower(name))"},
+        {"index_name": "idx_locations_active", "definition": "CREATE INDEX idx_locations_active ON public.locations USING btree (active)"}
       ],
       "foreign_keys": null
     },
@@ -343,6 +377,21 @@
       ],
       "foreign_keys": [
         {"column": "order_id", "references_table": "orders", "references_column": "id"},
+        {"column": "service_id", "references_table": "services", "references_column": "id"}
+      ]
+    },
+    {
+      "table_name": "service_runtime_state",
+      "primary_key": ["service_id"],
+      "columns": [
+        {"name": "service_id", "type": "uuid", "default": null, "nullable": "NO"},
+        {"name": "state", "type": "jsonb", "default": null, "nullable": "NO"},
+        {"name": "updated_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"}
+      ],
+      "indexes": [
+        {"index_name": "service_runtime_state_pkey", "definition": "CREATE UNIQUE INDEX service_runtime_state_pkey ON public.service_runtime_state USING btree (service_id)"}
+      ],
+      "foreign_keys": [
         {"column": "service_id", "references_table": "services", "references_column": "id"}
       ]
     }

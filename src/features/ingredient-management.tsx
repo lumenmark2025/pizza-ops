@@ -43,21 +43,35 @@ export function IngredientsAdminPage() {
   return (
     <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
       <Card className="p-5 sm:p-6">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Ingredients</p>
-        <h2 className="mt-2 font-display text-3xl font-bold">Ingredient admin</h2>
+        <h2 className="font-display text-3xl font-bold">Ingredient admin</h2>
         <p className="mt-2 text-sm text-slate-500">Create stock items used by pizzas and define their default service load.</p>
         <div className="mt-6 grid gap-3">
-          <Input placeholder="Ingredient name" value={ingredientDraft.name} onChange={(event) => setIngredientDraft((current) => ({ ...current, id: current.id || `ing_${event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`, name: event.target.value }))} />
+          <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+            Ingredient name
+            <Input value={ingredientDraft.name} onChange={(event) => setIngredientDraft((current) => ({ ...current, id: current.id || `ing_${event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`, name: event.target.value }))} />
+          </label>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Input placeholder="Unit" value={ingredientDraft.unit} onChange={(event) => setIngredientDraft((current) => ({ ...current, unit: event.target.value }))} />
-            <Input type="number" placeholder="Low stock threshold" value={ingredientDraft.lowStockThreshold} onChange={(event) => setIngredientDraft((current) => ({ ...current, lowStockThreshold: Number(event.target.value) }))} />
+            <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+              Unit
+              <Input value={ingredientDraft.unit} onChange={(event) => setIngredientDraft((current) => ({ ...current, unit: event.target.value }))} />
+            </label>
+            <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+              Low stock threshold
+              <Input type="number" value={ingredientDraft.lowStockThreshold} onChange={(event) => setIngredientDraft((current) => ({ ...current, lowStockThreshold: Number(event.target.value) }))} />
+            </label>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Input type="number" placeholder="Default stock amount" value={ingredientDefaultQuantity} onChange={(event) => setIngredientDefaultQuantity(Number(event.target.value))} />
-            <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={ingredientDraft.active ? 'active' : 'inactive'} onChange={(event) => setIngredientDraft((current) => ({ ...current, active: event.target.value === 'active' }))}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
+            <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+              Default stock amount
+              <Input type="number" value={ingredientDefaultQuantity} onChange={(event) => setIngredientDefaultQuantity(Number(event.target.value))} />
+            </label>
+            <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+              Status
+              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-slate-950" value={ingredientDraft.active ? 'active' : 'inactive'} onChange={(event) => setIngredientDraft((current) => ({ ...current, active: event.target.value === 'active' }))}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
           </div>
           <Button onClick={saveIngredient}>Save ingredient</Button>
         </div>

@@ -1,11 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Image as ImageIcon } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ChilliRating } from '../components/chilli-rating'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { createHostedSumUpCheckout } from '../integrations/sumup'
+import {
+  MENU_CATEGORY_OPTIONS,
+  getMenuCategoryLabel,
+  getMenuCategoryShortLabel,
+  getMenuItemImageUrl,
+  isPizzaMenuItem,
+  normalizeMenuItem,
+  resolveMenuCategorySlug,
+  sortMenuItems,
+} from '../lib/menu'
 import { getOrderItemsTotal } from '../lib/order-calculations'
 import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
@@ -172,6 +184,52 @@ function ServiceStatusBadge({
   return <Badge variant={status === 'live' ? 'green' : 'blue'}>{status === 'live' ? 'Ordering open' : 'Pre-orders open'}</Badge>
 }
 
+function MenuItemMedia({
+  imageUrl,
+  name,
+  className,
+}: {
+  imageUrl?: string | null
+  name: string
+  className?: string
+}) {
+  const resolvedImageUrl = getMenuItemImageUrl({ imageUrl })
+
+  return (
+    <div className={cn('flex h-32 items-center justify-center overflow-hidden rounded-[22px] bg-slate-100', className)}>
+      {resolvedImageUrl ? (
+        <img src={resolvedImageUrl} alt={name} className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#e2e8f0_100%)] text-slate-400">
+          <ImageIcon className="h-6 w-6" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CategoryJumpNav({ categorySlugs }: { categorySlugs: string[] }) {
+  if (!categorySlugs.length) {
+    return null
+  }
+
+  return (
+    <div className="sticky top-3 z-10 -mx-1 overflow-x-auto pb-1">
+      <div className="inline-flex min-w-full gap-2 rounded-2xl border border-white/70 bg-white/90 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+        {categorySlugs.map((slug) => (
+          <a
+            key={slug}
+            href={`#menu-category-${slug}`}
+            className="whitespace-nowrap rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-orange-100 hover:text-orange-800"
+          >
+            {getMenuCategoryShortLabel(slug, slug)}
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function PizzaEditor({
   open,
   menuItemId,
@@ -199,7 +257,7 @@ function PizzaEditor({
 
     return modifiers.filter((modifier) =>
       modifier.appliesToAllPizzas
-        ? menuItem.category === 'pizza'
+        ? isPizzaMenuItem(menuItem)
         : modifier.menuItemIds.includes(menuItem.id),
     )
   }, [menuItem, modifiers])
@@ -224,13 +282,17 @@ function PizzaEditor({
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
       <div className="w-full max-w-xl rounded-[28px] bg-white p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] sm:p-6">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Add to order</p>
-            <h2 className="mt-2 font-display text-3xl font-bold">{menuItem.name}</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <h2 className="font-display text-3xl font-bold">{menuItem.name}</h2>
+              <ChilliRating rating={menuItem.chilliRating ?? 0} />
+            </div>
             <p className="mt-2 text-sm text-slate-600">{menuItem.description}</p>
           </div>
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
+        <MenuItemMedia imageUrl={menuItem.imageUrl} name={menuItem.name} className="mt-5 h-40" />
         <div className="mt-5 rounded-2xl bg-slate-50 p-4">
           <p className="text-sm text-slate-500">Base price</p>
           <p className="mt-1 text-2xl font-bold">{currency(menuItem.price)}</p>
@@ -426,10 +488,20 @@ export function CustomerServicePage() {
 
   const location = locations.find((entry) => entry.id === service.locationId)
   const availability = getMenuAvailability(inventory, recipes, menuItems, orders)
-  const groupedMenu = {
-    pizzas: menuItems.filter((item) => item.category === 'pizza'),
-    sides: menuItems.filter((item) => item.category === 'side'),
-  }
+  const visibleMenuItems = useMemo(
+    () => sortMenuItems(menuItems.map(normalizeMenuItem).filter((item) => item.active !== false)),
+    [menuItems],
+  )
+  const categorySections = useMemo(
+    () =>
+      MENU_CATEGORY_OPTIONS.map((category) => ({
+        ...category,
+        items: visibleMenuItems.filter(
+          (item) => resolveMenuCategorySlug(item.categorySlug, item.category) === category.slug,
+        ),
+      })).filter((section) => section.items.length > 0),
+    [visibleMenuItems],
+  )
   const basketTotal = getOrderItemsTotal(draft.basket, menuItems)
 
   function openNewPizza(menuItemId: string) {
@@ -457,7 +529,7 @@ export function CustomerServicePage() {
   function savePizza(state: PizzaEditorState) {
     const eligibleModifiers = modifiers.filter((modifier) =>
       modifier.appliesToAllPizzas
-        ? menuItems.find((item) => item.id === state.menuItemId)?.category === 'pizza'
+        ? isPizzaMenuItem(menuItems.find((item) => item.id === state.menuItemId))
         : modifier.menuItemIds.includes(state.menuItemId),
     )
     const nextModifiers = eligibleModifiers
@@ -527,54 +599,57 @@ export function CustomerServicePage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Menu</p>
-                <h2 className="mt-2 font-display text-3xl font-bold">Pick your pizzas</h2>
+                <h2 className="mt-2 font-display text-3xl font-bold">Build your order</h2>
               </div>
               <Link to={`/order/location/${service.locationId}`}>
                 <Button variant="outline">Change service</Button>
               </Link>
             </div>
             <div className="mt-5 grid gap-5">
-              {(['pizzas', 'sides'] as const).map((groupKey) => {
-                const items = groupedMenu[groupKey]
-                if (!items.length) {
-                  return null
-                }
-
-                return (
-                  <div key={groupKey}>
-                    <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">{groupKey}</h3>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      {items.map((menuItem) => {
-                        const itemAvailability = availability.find((entry) => entry.menuItemId === menuItem.id)
-                        return (
-                          <button
-                            key={menuItem.id}
-                            className={cn(
-                              'rounded-[24px] border p-4 text-left transition',
-                              itemAvailability?.available
-                                ? 'border-slate-200 bg-slate-50 hover:bg-white'
-                                : 'border-rose-200 bg-rose-50 text-slate-400',
-                            )}
-                            onClick={() => openNewPizza(menuItem.id)}
-                            disabled={!itemAvailability?.available || !service.acceptPublicOrders}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
+              <CategoryJumpNav categorySlugs={categorySections.map((section) => section.slug)} />
+              {categorySections.map((section) => (
+                <section key={section.slug} id={`menu-category-${section.slug}`} className="scroll-mt-24">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-display text-2xl font-bold">{getMenuCategoryLabel(section.slug, section.slug)}</h3>
+                    <Badge variant="slate">{section.items.length}</Badge>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {section.items.map((menuItem) => {
+                      const itemAvailability = availability.find((entry) => entry.menuItemId === menuItem.id)
+                      return (
+                        <button
+                          key={menuItem.id}
+                          className={cn(
+                            'flex h-full flex-col rounded-[24px] border p-3 text-left transition sm:p-4',
+                            itemAvailability?.available
+                              ? 'border-slate-200 bg-slate-50 hover:bg-white'
+                              : 'border-rose-200 bg-rose-50 text-slate-400',
+                          )}
+                          onClick={() => openNewPizza(menuItem.id)}
+                          disabled={!itemAvailability?.available || !service.acceptPublicOrders}
+                        >
+                          <MenuItemMedia imageUrl={menuItem.imageUrl} name={menuItem.name} />
+                          <div className="mt-4 flex min-h-[5rem] items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <h4 className="font-display text-2xl font-semibold">{menuItem.name}</h4>
-                                <p className="mt-1 text-sm text-slate-600">{menuItem.description}</p>
+                                <ChilliRating rating={menuItem.chilliRating ?? 0} />
                               </div>
-                              <span className="text-xl font-bold">{currency(menuItem.price)}</span>
+                              <p className="mt-1 text-sm text-slate-600">{menuItem.description}</p>
                             </div>
-                            <p className="mt-4 text-sm font-semibold text-orange-700">
+                            <span className="shrink-0 text-xl font-bold">{currency(menuItem.price)}</span>
+                          </div>
+                          <div className="mt-auto pt-4">
+                            <p className={cn('text-sm font-semibold', itemAvailability?.available ? 'text-orange-700' : 'text-rose-700')}>
                               {itemAvailability?.available ? 'Customize and add' : 'Sold out'}
                             </p>
-                          </button>
-                        )
-                      })}
-                    </div>
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
-                )
-              })}
+                </section>
+              ))}
             </div>
           </Card>
         </div>
@@ -629,7 +704,7 @@ export function CustomerServicePage() {
               })
             ) : (
               <p className="rounded-2xl border border-dashed border-slate-300 p-5 text-sm text-slate-500">
-                Choose a pizza to start your order.
+                Choose an item to start your order.
               </p>
             )}
           </div>

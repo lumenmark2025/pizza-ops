@@ -5,6 +5,7 @@ import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { createHostedSumUpCheckout } from '../integrations/sumup'
+import { getMenuCategoryLabel, isPizzaMenuItem, sortMenuItems } from '../lib/menu'
 import { getOrderItemsTotal } from '../lib/order-calculations'
 import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
@@ -57,6 +58,10 @@ export function OrderEntryPage() {
   const availability = useMemo(
     () => getMenuAvailability(inventory, recipes, menuItems, orders),
     [inventory, menuItems, orders, recipes],
+  )
+  const activeMenuItems = useMemo(
+    () => sortMenuItems(menuItems.filter((entry) => entry.active !== false)),
+    [menuItems],
   )
   const activePagerNumbers = useMemo(
     () =>
@@ -119,7 +124,7 @@ export function OrderEntryPage() {
     const target = menuItems.find((entry) => entry.id === menuItemId)
     return modifiers.filter((modifier) =>
       modifier.appliesToAllPizzas
-        ? target?.category === 'pizza'
+        ? isPizzaMenuItem(target)
         : modifier.menuItemIds.includes(menuItemId),
     )
   }
@@ -199,7 +204,7 @@ export function OrderEntryPage() {
           <Badge variant="blue">{service.startTime} to {service.lastCollectionTime}</Badge>
         </div>
         <div className="mt-5 grid gap-3 md:grid-cols-2">
-          {menuItems.map((menuItem) => {
+          {activeMenuItems.map((menuItem) => {
             const itemAvailability = availability.find((entry) => entry.menuItemId === menuItem.id)
             return (
               <Card key={menuItem.id} className={cn('border p-4', itemAvailability?.available ? 'border-white/70' : 'border-rose-200 bg-rose-50/80')}>
@@ -208,7 +213,9 @@ export function OrderEntryPage() {
                     <h3 className="font-display text-xl font-semibold">{menuItem.name}</h3>
                     <p className="mt-1 text-sm text-slate-600">{menuItem.description}</p>
                   </div>
-                  <Badge variant={menuItem.category === 'pizza' ? 'orange' : 'slate'}>{menuItem.category}</Badge>
+                  <Badge variant={isPizzaMenuItem(menuItem) ? 'orange' : 'slate'}>
+                    {getMenuCategoryLabel(menuItem.categorySlug, menuItem.category)}
+                  </Badge>
                 </div>
                 <div className="mt-4 flex items-center justify-between">
                   <span className="text-xl font-bold">{currency(menuItem.price)}</span>
@@ -294,7 +301,7 @@ export function OrderEntryPage() {
                 ) : null}
               </div>
             )
-          }) : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Add pizzas to build the basket.</p>}
+          }) : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Add items to build the basket.</p>}
         </div>
         <div className="mt-5 rounded-2xl bg-slate-950 p-4 text-white">
           <div className="flex items-center justify-between">
@@ -315,7 +322,7 @@ export function OrderEntryPage() {
           </div>
           {!availableSlots.length ? (
             <p className="mt-3 text-sm text-slate-300">
-              {basket.length ? 'No collection slots available right now.' : 'Add a pizza to load valid collection times.'}
+              {basket.length ? 'No collection slots available right now.' : 'Add an item to load valid collection times.'}
             </p>
           ) : null}
           <Button className="mt-4 w-full" size="lg" onClick={() => void submitOrder()} disabled={isSubmitting}>

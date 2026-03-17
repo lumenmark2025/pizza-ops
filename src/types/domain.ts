@@ -51,10 +51,15 @@ export type Ingredient = {
 export type MenuItem = {
   id: string
   name: string
-  category: 'pizza' | 'side'
+  category: string
+  categorySlug?: 'pizza' | 'garlic-pizza' | 'house-specials' | 'dips' | 'drinks' | null
+  sortOrder?: number
+  chilliRating?: number
+  imageUrl?: string | null
   price: number
   loyverseItemId: string
   description: string
+  active?: boolean
 }
 
 export type MenuItemRecipe = {
