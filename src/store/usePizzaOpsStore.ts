@@ -487,6 +487,7 @@ export const usePizzaOpsStore = create<StoreState>()(
                 subtotalAmount: order.subtotalAmount ?? order.totalAmount,
                 totalDiscountAmount: order.totalDiscountAmount ?? 0,
                 notes: order.notes ?? '',
+                pagerNumber: order.pagerNumber ?? null,
                 items: order.items.map((item) => {
                   const menuItem = state.menuItems.find((entry) => entry.id === item.menuItemId)
                   return {
