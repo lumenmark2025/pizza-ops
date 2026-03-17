@@ -9,7 +9,13 @@ import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { validatePublicDiscountCode } from '../integrations/discounts'
 import { createHostedSumUpCheckout } from '../integrations/sumup'
-import { getOrderPricingSummary } from '../lib/discounts'
+import {
+  buildCodeDiscountSummary,
+  calculateDiscountAmount,
+  getOrderPricingSummary,
+  normalizeDiscountCodeInput,
+  validateDiscountCode,
+} from '../lib/discounts'
 import {
   MENU_CATEGORY_OPTIONS,
   getMenuCategoryLabel,
@@ -25,7 +31,7 @@ import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
 import { cn, currency } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
-import type { AppliedDiscountSummary, MenuItem, OrderItem, PaymentStatus, PricingSummary } from '../types/domain'
+import type { AppliedDiscountSummary, DiscountCode, MenuItem, OrderItem, PaymentStatus, PricingSummary } from '../types/domain'
 
 const PUBLIC_DRAFT_KEY = 'pizza_ops_public_order_draft_v1'
 
@@ -131,6 +137,13 @@ function getDraftResetPatch() {
   }
 }
 
+function buildEmptyDraftForService(serviceId: string | null): PublicDraft {
+  return {
+    ...EMPTY_DRAFT,
+    serviceId,
+  }
+}
+
 function getBasketSignature(basket: OrderItem[]) {
   return JSON.stringify(
     basket.map((item) => ({
@@ -148,6 +161,7 @@ function getBasketSignature(basket: OrderItem[]) {
 function useCustomerVoucher(
   draft: PublicDraft,
   patchDraft: (updates: Partial<PublicDraft>) => void,
+  discountCodes: DiscountCode[],
   menuItems: MenuItem[],
 ) {
   const [discountCodeInput, setDiscountCodeInput] = useState(draft.discountCode)
@@ -163,6 +177,64 @@ function useCustomerVoucher(
   useEffect(() => {
     setDiscountCodeInput(draft.discountCode)
   }, [draft.discountCode])
+
+  function validateDiscountCodeLocally(codeInput: string) {
+    const normalized = normalizeDiscountCodeInput(codeInput)
+    const matchedCode = discountCodes.find(
+      (entry) => normalizeDiscountCodeInput(entry.code) === normalized,
+    )
+    const nowIso = new Date().toISOString()
+    const validation = validateDiscountCode({
+      discountCode: matchedCode,
+      nowIso,
+      items: draft.basket,
+      menuItems,
+      scope: 'order',
+    })
+
+    if (!validation.ok || !matchedCode) {
+      return { ok: false as const, error: validation.ok ? 'Discount code not found.' : validation.error }
+    }
+
+    const pricingBeforeDiscount = getOrderPricingSummary(draft.basket, menuItems, 0)
+    const appliedAmount = calculateDiscountAmount(
+      matchedCode.discountType,
+      matchedCode.discountValue,
+      pricingBeforeDiscount.subtotalAmount - pricingBeforeDiscount.itemDiscountAmount,
+    )
+
+    return {
+      ok: true as const,
+      appliedOrderDiscount: buildCodeDiscountSummary({
+        scope: 'order',
+        discountType: matchedCode.discountType,
+        discountValue: matchedCode.discountValue,
+        appliedAmount,
+        code: matchedCode.code,
+        discountCodeId: matchedCode.id,
+        appliedBy: 'customer',
+        appliedAt: nowIso,
+      }),
+      pricingSummary: getOrderPricingSummary(draft.basket, menuItems, appliedAmount),
+      message: `${matchedCode.code} applied.`,
+    }
+  }
+
+  async function validateCustomerDiscountCode(codeInput: string) {
+    const result = await validatePublicDiscountCode({
+      code: codeInput,
+      items: draft.basket,
+    })
+
+    if (
+      result.ok ||
+      !result.error.toLowerCase().includes('unable to validate this discount code right now')
+    ) {
+      return result
+    }
+
+    return validateDiscountCodeLocally(codeInput)
+  }
 
   useEffect(() => {
     if (!draft.discountCode) {
@@ -187,10 +259,7 @@ function useCustomerVoucher(
     let cancelled = false
 
     async function refreshAppliedDiscount() {
-      const result = await validatePublicDiscountCode({
-        code: draft.discountCode,
-        items: draft.basket,
-      })
+      const result = await validateCustomerDiscountCode(draft.discountCode)
 
       if (cancelled) {
         return
@@ -238,27 +307,24 @@ function useCustomerVoucher(
     setDiscountMessage(null)
 
     try {
-      const result = await validatePublicDiscountCode({
-        code: discountCodeInput,
-        items: draft.basket,
-      })
+      const resolvedResult = await validateCustomerDiscountCode(discountCodeInput)
 
-      if (!result.ok) {
-        setDiscountMessage(result.error)
-        return { ok: false as const, error: result.error }
+      if (!resolvedResult.ok) {
+        setDiscountMessage(resolvedResult.error)
+        return { ok: false as const, error: resolvedResult.error }
       }
 
       patchDraft({
         ...getDraftResetPatch(),
         discountCode: discountCodeInput.trim(),
-        appliedOrderDiscount: result.appliedOrderDiscount,
-        pricingSummary: result.pricingSummary,
+        appliedOrderDiscount: resolvedResult.appliedOrderDiscount,
+        pricingSummary: resolvedResult.pricingSummary,
       })
-      setDiscountMessage(result.message)
+      setDiscountMessage(resolvedResult.message)
       return {
         ok: true as const,
-        appliedOrderDiscount: result.appliedOrderDiscount,
-        pricingSummary: result.pricingSummary,
+        appliedOrderDiscount: resolvedResult.appliedOrderDiscount,
+        pricingSummary: resolvedResult.pricingSummary,
       }
     } finally {
       setIsApplyingDiscount(false)
@@ -285,6 +351,7 @@ function useCustomerVoucher(
     applyDiscountCode,
     removeDiscountCode,
     pricingSummary,
+    validateCustomerDiscountCode,
   }
 }
 
@@ -471,6 +538,14 @@ function VoucherCodeCard({
       </div>
     </div>
   )
+}
+
+function confirmClearBasket() {
+  if (typeof window === 'undefined') {
+    return true
+  }
+
+  return window.confirm('Remove all items and start again?')
 }
 
 function PizzaEditor({
@@ -700,6 +775,7 @@ export function CustomerServicePage() {
   const inventory = usePizzaOpsStore((state) => state.inventory)
   const service = usePizzaOpsStore((state) => state.service)
   const locations = usePizzaOpsStore((state) => state.locations)
+  const discountCodes = usePizzaOpsStore((state) => state.discountCodes)
   const modifiers = usePizzaOpsStore((state) => state.modifiers)
   const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
   const { draft, patchDraft } = usePublicDraft()
@@ -712,7 +788,7 @@ export function CustomerServicePage() {
     applyDiscountCode,
     removeDiscountCode,
     pricingSummary,
-  } = useCustomerVoucher(draft, patchDraft, menuItems)
+  } = useCustomerVoucher(draft, patchDraft, discountCodes, menuItems)
 
   useEffect(() => {
     if (serviceId && service.id !== serviceId) {
@@ -817,6 +893,15 @@ export function CustomerServicePage() {
       })
     }
 
+    setEditor(null)
+  }
+
+  function clearBasket() {
+    if (!confirmClearBasket()) {
+      return
+    }
+
+    patchDraft(buildEmptyDraftForService(serviceId ?? null))
     setEditor(null)
   }
 
@@ -969,9 +1054,14 @@ export function CustomerServicePage() {
                 <span>-{currency(pricingSummary.totalDiscountAmount)}</span>
               </div>
             </div>
-            <Button className="mt-4 w-full bg-orange-500 text-white hover:bg-orange-400" disabled={!draft.basket.length || !service.acceptPublicOrders} onClick={() => navigate('/order/checkout')}>
-              Continue to checkout
-            </Button>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <Button className="bg-orange-500 text-white hover:bg-orange-400" disabled={!draft.basket.length || !service.acceptPublicOrders} onClick={() => navigate('/order/checkout')}>
+                Continue to checkout
+              </Button>
+              <Button variant="outline" disabled={!draft.basket.length && draft.paymentState !== 'pending_payment'} onClick={clearBasket}>
+                Clear basket
+              </Button>
+            </div>
           </div>
           <div className="mt-4">
             <VoucherCodeCard
@@ -1002,7 +1092,9 @@ export function CustomerServicePage() {
 }
 
 export function CustomerCheckoutPage() {
+  const navigate = useNavigate()
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
+  const discountCodes = usePizzaOpsStore((state) => state.discountCodes)
   const service = usePizzaOpsStore((state) => state.service)
   const locations = usePizzaOpsStore((state) => state.locations)
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
@@ -1021,7 +1113,8 @@ export function CustomerCheckoutPage() {
     applyDiscountCode,
     removeDiscountCode,
     pricingSummary,
-  } = useCustomerVoucher(draft, patchDraft, menuItems)
+    validateCustomerDiscountCode,
+  } = useCustomerVoucher(draft, patchDraft, discountCodes, menuItems)
 
   useEffect(() => {
     if (draft.serviceId && service.id !== draft.serviceId) {
@@ -1048,6 +1141,15 @@ export function CustomerCheckoutPage() {
     return <Navigate to="/order" replace />
   }
 
+  function clearBasket() {
+    if (!confirmClearBasket()) {
+      return
+    }
+
+    patchDraft(buildEmptyDraftForService(draft.serviceId))
+    navigate(`/order/service/${draft.serviceId}`)
+  }
+
   async function handlePay() {
     if (!draft.customerName.trim()) {
       setMessage('Please enter your name.')
@@ -1066,10 +1168,7 @@ export function CustomerCheckoutPage() {
     let latestPricingSummary = pricingSummary
 
     if (draft.discountCode) {
-      const validation = await validatePublicDiscountCode({
-        code: draft.discountCode,
-        items: draft.basket,
-      })
+      const validation = await validateCustomerDiscountCode(draft.discountCode)
 
       if (!validation.ok) {
         patchDraft({
@@ -1244,9 +1343,14 @@ export function CustomerCheckoutPage() {
               ))}
             </div>
           </div>
-          <Button className="mt-6 w-full bg-orange-500 text-white hover:bg-orange-400" size="lg" disabled={isSubmitting || !service.acceptPublicOrders} onClick={() => void handlePay()}>
-            {isSubmitting ? 'Starting secure checkout...' : 'Pay securely'}
-          </Button>
+          <div className="mt-6 grid gap-2 sm:grid-cols-2">
+            <Button className="bg-orange-500 text-white hover:bg-orange-400" size="lg" disabled={isSubmitting || !service.acceptPublicOrders} onClick={() => void handlePay()}>
+              {isSubmitting ? 'Starting secure checkout...' : 'Pay securely'}
+            </Button>
+            <Button variant="outline" size="lg" disabled={!draft.basket.length && draft.paymentState !== 'pending_payment'} onClick={clearBasket}>
+              Clear basket
+            </Button>
+          </div>
           {message ? <p className="mt-3 text-sm text-rose-600">{message}</p> : null}
         </Card>
       </div>
@@ -1256,6 +1360,7 @@ export function CustomerCheckoutPage() {
 
 export function CustomerOrderConfirmationPage() {
   const { orderId } = useParams()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const orders = usePizzaOpsStore((state) => state.orders)
   const payments = usePizzaOpsStore((state) => state.payments)
@@ -1299,6 +1404,15 @@ export function CustomerOrderConfirmationPage() {
     getPaymentStatusFromQuery(searchParams.get('result')) ??
     payment.status
 
+  function clearBasketAndRestart() {
+    if (!confirmClearBasket()) {
+      return
+    }
+
+    patchDraft(buildEmptyDraftForService(null))
+    navigate('/order', { replace: true })
+  }
+
   return (
     <CustomerShell eyebrow="Order Status" title={paymentStatus === 'paid' ? 'Payment confirmed' : paymentStatus === 'failed' ? 'Payment failed' : 'Payment pending'}>
       <Card className="mx-auto max-w-2xl rounded-[28px] border-white/70 bg-white/90 p-6">
@@ -1316,6 +1430,16 @@ export function CustomerOrderConfirmationPage() {
           </div>
         </div>
         <div className="mt-5 flex flex-wrap gap-3">
+          {paymentStatus !== 'paid' ? (
+            <Button variant="outline" onClick={() => navigate('/order/checkout')}>
+              Return to basket
+            </Button>
+          ) : null}
+          {paymentStatus !== 'paid' ? (
+            <Button variant="secondary" onClick={clearBasketAndRestart}>
+              Start again
+            </Button>
+          ) : null}
           <Link to="/order">
             <Button variant="secondary">Start another order</Button>
           </Link>
