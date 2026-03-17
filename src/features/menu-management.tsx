@@ -101,7 +101,7 @@ export function MenuAdminPage() {
   const recipes = usePizzaOpsStore((state) => state.recipes)
   const upsertMenuItem = usePizzaOpsStore((state) => state.upsertMenuItem)
   const sortedMenuItems = useMemo(() => sortMenuItems(menuItems.map(normalizeMenuItem)), [menuItems])
-  const [selectedMenuItemId, setSelectedMenuItemId] = useState(sortedMenuItems[0]?.id ?? '')
+  const [editingMenuItemId, setEditingMenuItemId] = useState<string | null>(sortedMenuItems[0]?.id ?? null)
   const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>(sortedMenuItems[0] ?? emptyDraft())
   const nextRecipeClientId = useRef(0)
   const getNextRecipeClientId = () => {
@@ -121,16 +121,20 @@ export function MenuAdminPage() {
     [ingredients, recipes],
   )
 
+  function resetMenuItemForm() {
+    setEditingMenuItemId(null)
+    setMenuItemDraft(emptyDraft())
+    setMenuRecipeDraft([])
+  }
+
   function loadMenuItem(item: MenuItem | null, sourceRecipes = recipes) {
     if (!item) {
-      setSelectedMenuItemId('')
-      setMenuItemDraft(emptyDraft())
-      setMenuRecipeDraft([])
+      resetMenuItemForm()
       return
     }
 
     const normalizedItem = normalizeMenuItem(item)
-    setSelectedMenuItemId(normalizedItem.id)
+    setEditingMenuItemId(normalizedItem.id)
     setMenuItemDraft(normalizedItem)
     setMenuRecipeDraft(buildRecipeDraft(sourceRecipes, normalizedItem.id, getNextRecipeClientId))
   }
@@ -140,7 +144,7 @@ export function MenuAdminPage() {
       return
     }
 
-    const id = menuItemDraft.id || createMenuItemId()
+    const id = editingMenuItemId || menuItemDraft.id || createMenuItemId()
 
     const saved = normalizeMenuItem({
       ...menuItemDraft,
@@ -180,7 +184,7 @@ export function MenuAdminPage() {
       'manager',
     )
 
-    if (selectedMenuItemId === normalizedItem.id) {
+    if (editingMenuItemId === normalizedItem.id) {
       setMenuItemDraft((current) =>
         normalizeMenuItem({
           ...current,
@@ -227,14 +231,14 @@ export function MenuAdminPage() {
         <Card className="p-5 sm:p-6">
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-display text-2xl font-bold">Current menu items</h3>
-            <Button variant="secondary" onClick={() => loadMenuItem(null)}>New item</Button>
+            <Button variant="secondary" onClick={resetMenuItemForm}>New item</Button>
           </div>
           <div className="mt-4 space-y-3">
             {sortedMenuItems.map((item) => (
               <div
                 key={item.id}
                 className={`rounded-2xl border p-4 transition ${
-                  selectedMenuItemId === item.id
+                  editingMenuItemId === item.id
                     ? 'border-orange-400 bg-orange-50'
                     : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
@@ -309,10 +313,10 @@ export function MenuAdminPage() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Menu Editor</p>
               <h3 className="mt-2 font-display text-2xl font-bold">
-                {menuItemDraft.id ? `Editing ${menuItemDraft.name}` : 'Create a menu item'}
+                {editingMenuItemId ? `Editing ${menuItemDraft.name}` : 'Create a menu item'}
               </h3>
             </div>
-            {menuItemDraft.id ? <Badge variant="blue">{menuItemDraft.id}</Badge> : null}
+            {editingMenuItemId ? <Badge variant="blue">{editingMenuItemId}</Badge> : null}
           </div>
           <div className="mt-5 grid gap-4">
             <label className="grid gap-2 text-sm">
