@@ -57,6 +57,7 @@
         {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "nullable": "NO"},
         {"name": "name", "type": "text", "default": null, "nullable": "NO"},
         {"name": "unit", "type": "text", "default": null, "nullable": "NO"},
+        {"name": "low_stock_threshold", "type": "numeric", "default": "0", "nullable": "NO"},
         {"name": "track_stock", "type": "boolean", "default": "true", "nullable": "NO"},
         {"name": "active", "type": "boolean", "default": "true", "nullable": "NO"},
         {"name": "created_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"},

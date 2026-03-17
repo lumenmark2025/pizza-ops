@@ -51,7 +51,7 @@ export function IngredientsAdminPage() {
     setEditingIngredientId(ingredient.id)
   }
 
-  function saveIngredient() {
+  async function saveIngredient() {
     if (!ingredientDraft.name.trim()) {
       return
     }
@@ -66,7 +66,7 @@ export function IngredientsAdminPage() {
       id: nextId,
     }
 
-    upsertIngredient(next, ingredientDefaultQuantity, 'manager')
+    await upsertIngredient(next, ingredientDefaultQuantity, 'manager')
     resetIngredientForm()
   }
 

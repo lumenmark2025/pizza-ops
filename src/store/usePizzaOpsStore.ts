@@ -9,7 +9,13 @@ import {
   normalizeDiscountCodeInput,
   validateDiscountCode,
 } from '../lib/discounts'
-import { syncMasterDataToSupabase } from '../lib/master-data-sync'
+import {
+  loadMasterDataFromSupabase,
+  persistIngredientToSupabase,
+  persistMenuItemRecipesToSupabase,
+  persistMenuItemToSupabase,
+  syncMasterDataToSupabase,
+} from '../lib/master-data-sync'
 import { normalizeMenuItem } from '../lib/menu'
 import { SAFE_MODE } from '../lib/runtime-flags'
 import { allocateAcrossSlots, getAvailableSlots } from '../lib/slot-engine'
@@ -83,7 +89,7 @@ type StoreState = ServiceSnapshot & {
   loadServiceForEditing: (serviceId: string) => boolean
   duplicateService: (serviceId: string, actor: string) => string | null
   archiveService: (serviceId: string, actor: string) => void
-  upsertIngredient: (ingredient: Ingredient, defaultQuantity: number, actor: string) => void
+  upsertIngredient: (ingredient: Ingredient, defaultQuantity: number, actor: string) => Promise<void>
   setInventoryQuantity: (ingredientId: string, quantity: number, actor: string) => void
   adjustInventoryQuantity: (ingredientId: string, delta: number, actor: string) => void
   setInventoryDefaultQuantity: (ingredientId: string, quantity: number, actor: string) => void
@@ -92,7 +98,7 @@ type StoreState = ServiceSnapshot & {
     menuItem: MenuItem,
     recipeRows: MenuItemRecipe[],
     actor: string,
-  ) => void
+  ) => Promise<void>
   upsertDiscountCode: (discountCode: DiscountCode, actor: string) => void
   upsertModifier: (modifier: Modifier, actor: string) => void
   deleteModifier: (modifierId: string, actor: string) => void
@@ -577,6 +583,20 @@ export const usePizzaOpsStore = create<StoreState>()(
         )
       }
 
+      const refreshMasterDataFromTables = async () => {
+        const patch = await loadMasterDataFromSupabase(getPersistableSnapshot(get()))
+        if (!patch) {
+          return
+        }
+
+        commit(
+          () => ({
+            ...patch,
+          }),
+          { sync: false },
+        )
+      }
+
       return {
         ...createDemoState(),
         isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
@@ -585,6 +605,7 @@ export const usePizzaOpsStore = create<StoreState>()(
         hydrateRemote: async () => {
           if (SAFE_MODE) {
             await syncMasterData()
+            await refreshMasterDataFromTables()
             set({ remoteReady: true })
             return
           }
@@ -597,6 +618,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             console.info('[pizza-ops] hydrateRemote invoked')
             if (!canUseRealtimeSync()) {
               await syncMasterData()
+              await refreshMasterDataFromTables()
               set({ remoteReady: true })
               return
             }
@@ -617,11 +639,13 @@ export const usePizzaOpsStore = create<StoreState>()(
                 set({ remoteReady: true })
               }
               await syncMasterData()
+              await refreshMasterDataFromTables()
               return
             }
 
             await persistRemoteSnapshot(current)
             await syncMasterData()
+            await refreshMasterDataFromTables()
             set({ remoteReady: true })
           })().finally(() => {
             hydrateRemotePromise = null
@@ -1307,30 +1331,36 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        upsertIngredient: (ingredient, defaultQuantity, actor) => {
-          const exists = get().ingredients.some((entry) => entry.id === ingredient.id)
+        upsertIngredient: async (ingredient, defaultQuantity, actor) => {
+          const persistedIngredient = await persistIngredientToSupabase(ingredient)
+          const nextIngredient = persistedIngredient ?? ingredient
+          const exists = get().ingredients.some((entry) => entry.id === nextIngredient.id)
           commit((current) => ({
             ingredients: exists
-              ? current.ingredients.map((entry) => (entry.id === ingredient.id ? ingredient : entry))
-              : [...current.ingredients, ingredient],
+              ? current.ingredients.map((entry) => (entry.id === nextIngredient.id ? nextIngredient : entry))
+              : [...current.ingredients, nextIngredient],
             inventoryDefaults: exists
               ? current.inventoryDefaults.map((entry) =>
-                  entry.ingredientId === ingredient.id ? { ...entry, quantity: defaultQuantity } : entry,
+                  entry.ingredientId === nextIngredient.id ? { ...entry, quantity: defaultQuantity } : entry,
                 )
-              : [...current.inventoryDefaults, { ingredientId: ingredient.id, quantity: defaultQuantity }],
+              : [...current.inventoryDefaults, { ingredientId: nextIngredient.id, quantity: defaultQuantity }],
             inventory: exists
               ? current.inventory.map((entry) =>
-                  entry.ingredientId === ingredient.id && entry.quantity === 0
+                  entry.ingredientId === nextIngredient.id && entry.quantity === 0
                     ? { ...entry, quantity: defaultQuantity }
                     : entry,
                 )
-              : [...current.inventory, { ingredientId: ingredient.id, quantity: defaultQuantity }],
+              : [...current.inventory, { ingredientId: nextIngredient.id, quantity: defaultQuantity }],
+            recipes: current.recipes.map((entry) =>
+              entry.ingredientId === ingredient.id
+                ? { ...entry, ingredientId: nextIngredient.id }
+                : entry,
+            ),
             activityLog: [
-              createActivity('inventory_adjusted', actor, `${exists ? 'Updated' : 'Created'} ingredient ${ingredient.name}.`),
+              createActivity('inventory_adjusted', actor, `${exists ? 'Updated' : 'Created'} ingredient ${nextIngredient.name}.`),
               ...current.activityLog,
             ],
           }))
-          void syncMasterData()
         },
         setInventoryQuantity: (ingredientId, quantity, actor) => {
           const safeQuantity = Math.max(0, quantity)
@@ -1370,30 +1400,73 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        upsertMenuItem: (menuItem, recipeRows, actor) => {
+        upsertMenuItem: async (menuItem, recipeRows, actor) => {
           const normalizedMenuItem = normalizeMenuItem(menuItem)
-          const exists = get().menuItems.some((entry) => entry.id === menuItem.id)
-          const normalizedRecipeRows = recipeRows
-            .filter((entry) => entry.quantity > 0)
-            .map((entry, index) => ({
+          const persistedMenuItem = await persistMenuItemToSupabase(normalizedMenuItem)
+          const canonicalMenuItem = persistedMenuItem ?? normalizedMenuItem
+          const persistedRecipeRows = await persistMenuItemRecipesToSupabase(
+            canonicalMenuItem.id,
+            recipeRows.map((entry) => ({
               ...entry,
-              id: entry.id || `${normalizedMenuItem.id}_recipe_${index + 1}`,
+              menuItemId: canonicalMenuItem.id,
               affectsAvailability: entry.affectsAvailability !== false,
-            }))
+            })),
+          )
+          const canonicalRecipeRows =
+            persistedRecipeRows ??
+            recipeRows
+              .filter((entry) => entry.quantity > 0)
+              .map((entry, index) => ({
+                ...entry,
+                id: entry.id || `${canonicalMenuItem.id}_recipe_${index + 1}`,
+                menuItemId: canonicalMenuItem.id,
+                affectsAvailability: entry.affectsAvailability !== false,
+              }))
+          const exists =
+            get().menuItems.some((entry) => entry.id === canonicalMenuItem.id) ||
+            get().menuItems.some((entry) => entry.id === normalizedMenuItem.id)
           commit((current) => ({
             menuItems: exists
-              ? current.menuItems.map((entry) => (entry.id === normalizedMenuItem.id ? normalizedMenuItem : entry))
-              : [...current.menuItems, normalizedMenuItem],
+              ? current.menuItems.map((entry) =>
+                  entry.id === canonicalMenuItem.id || entry.id === normalizedMenuItem.id
+                    ? canonicalMenuItem
+                    : entry,
+                )
+              : [...current.menuItems, canonicalMenuItem],
             recipes: [
-              ...current.recipes.filter((entry) => entry.menuItemId !== normalizedMenuItem.id),
-              ...normalizedRecipeRows,
+              ...current.recipes.filter(
+                (entry) =>
+                  entry.menuItemId !== normalizedMenuItem.id &&
+                  entry.menuItemId !== canonicalMenuItem.id,
+              ),
+              ...canonicalRecipeRows,
             ],
+            modifiers: current.modifiers.map((modifier) => ({
+              ...modifier,
+              menuItemIds: modifier.menuItemIds.map((menuItemId) =>
+                menuItemId === normalizedMenuItem.id ? canonicalMenuItem.id : menuItemId,
+              ),
+            })),
+            orders: current.orders.map((order) => ({
+              ...order,
+              items: order.items.map((item) => ({
+                ...item,
+                menuItemId:
+                  item.menuItemId === normalizedMenuItem.id ? canonicalMenuItem.id : item.menuItemId,
+              })),
+            })),
+            discountCodes: current.discountCodes.map((discountCode) => ({
+              ...discountCode,
+              appliesToMenuItemId:
+                discountCode.appliesToMenuItemId === normalizedMenuItem.id
+                  ? canonicalMenuItem.id
+                  : discountCode.appliesToMenuItemId,
+            })),
             activityLog: [
-              createActivity('service_updated', actor, `${exists ? 'Updated' : 'Added'} menu item ${normalizedMenuItem.name}.`),
+              createActivity('service_updated', actor, `${exists ? 'Updated' : 'Added'} menu item ${canonicalMenuItem.name}.`),
               ...current.activityLog,
             ],
           }))
-          void syncMasterData()
         },
         upsertDiscountCode: (discountCode, actor) => {
           const exists = get().discountCodes.some((entry) => entry.id === discountCode.id)

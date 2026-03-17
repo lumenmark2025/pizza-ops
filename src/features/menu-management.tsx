@@ -136,7 +136,7 @@ export function MenuAdminPage() {
     setMenuRecipeDraft(buildRecipeDraft(sourceRecipes, normalizedItem.id, getNextRecipeClientId))
   }
 
-  function saveMenuItem() {
+  async function saveMenuItem() {
     if (!menuItemDraft.name.trim()) {
       return
     }
@@ -159,7 +159,7 @@ export function MenuAdminPage() {
         affectsAvailability: entry.affectsAvailability !== false,
       }))
 
-    upsertMenuItem(
+    await upsertMenuItem(
       saved,
       savedRecipeRows,
       'manager',
@@ -168,9 +168,9 @@ export function MenuAdminPage() {
     loadMenuItem(saved, savedRecipeRows)
   }
 
-  function toggleMenuVisibility(item: MenuItem) {
+  async function toggleMenuVisibility(item: MenuItem) {
     const normalizedItem = normalizeMenuItem(item)
-    upsertMenuItem(
+    await upsertMenuItem(
       {
         ...normalizedItem,
         active: normalizedItem.active === false,
