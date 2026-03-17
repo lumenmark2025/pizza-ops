@@ -1353,13 +1353,20 @@ export const usePizzaOpsStore = create<StoreState>()(
         upsertMenuItem: (menuItem, recipeRows, actor) => {
           const normalizedMenuItem = normalizeMenuItem(menuItem)
           const exists = get().menuItems.some((entry) => entry.id === menuItem.id)
+          const normalizedRecipeRows = recipeRows
+            .filter((entry) => entry.quantity > 0)
+            .map((entry, index) => ({
+              ...entry,
+              id: entry.id || `${normalizedMenuItem.id}_recipe_${index + 1}`,
+              affectsAvailability: entry.affectsAvailability !== false,
+            }))
           commit((current) => ({
             menuItems: exists
               ? current.menuItems.map((entry) => (entry.id === normalizedMenuItem.id ? normalizedMenuItem : entry))
               : [...current.menuItems, normalizedMenuItem],
             recipes: [
               ...current.recipes.filter((entry) => entry.menuItemId !== normalizedMenuItem.id),
-              ...recipeRows.filter((entry) => entry.quantity > 0),
+              ...normalizedRecipeRows,
             ],
             activityLog: [
               createActivity('service_updated', actor, `${exists ? 'Updated' : 'Added'} menu item ${normalizedMenuItem.name}.`),

@@ -67,9 +67,11 @@ export type MenuItem = {
 }
 
 export type MenuItemRecipe = {
+  id: string
   menuItemId: string
   ingredientId: string
   quantity: number
+  affectsAvailability?: boolean
 }
 
 export type ServiceInventory = {

@@ -6,8 +6,8 @@ import {
   normalizeDiscountCodeInput,
   getOrderPricingSummary,
   validateDiscountCode,
-} from '../src/lib/discounts'
-import type { DiscountCode, MenuItem, OrderItem } from '../src/types/domain'
+} from '../src/lib/discounts.js'
+import type { DiscountCode, MenuItem, OrderItem } from '../src/types/domain.js'
 
 type DiscountCodeRow = {
   id: string

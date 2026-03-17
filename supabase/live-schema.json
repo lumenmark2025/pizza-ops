@@ -8,6 +8,7 @@
         {"name": "menu_item_id", "type": "uuid", "default": null, "nullable": "NO"},
         {"name": "ingredient_id", "type": "uuid", "default": null, "nullable": "NO"},
         {"name": "quantity", "type": "numeric", "default": null, "nullable": "NO"},
+        {"name": "affects_availability", "type": "boolean", "default": "true", "nullable": "NO"},
         {"name": "created_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"}
       ],
       "indexes": [

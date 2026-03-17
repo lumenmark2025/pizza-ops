@@ -216,7 +216,11 @@ export function getMenuAvailability(
   return menuItems.map((item) => {
     const recipeRows = recipes.filter((recipe) => recipe.menuItemId === item.id)
     const limitedBy = recipeRows
-      .filter((recipe) => (remainingByIngredient.get(recipe.ingredientId) ?? 0) < recipe.quantity)
+      .filter(
+        (recipe) =>
+          recipe.affectsAvailability !== false &&
+          (remainingByIngredient.get(recipe.ingredientId) ?? 0) < recipe.quantity,
+      )
       .map((recipe) => recipe.ingredientId)
 
     return {

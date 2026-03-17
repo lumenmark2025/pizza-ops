@@ -16,7 +16,7 @@ import {
 } from '../lib/menu'
 import { currency } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
-import type { MenuItem } from '../types/domain'
+import type { MenuItem, MenuItemRecipe } from '../types/domain'
 
 function emptyDraft(): MenuItem {
   return normalizeMenuItem({
@@ -51,6 +51,19 @@ function MenuImagePreview({ imageUrl, name }: { imageUrl?: string | null; name: 
   )
 }
 
+function createRecipeRow(menuItemId = '', ingredientId = ''): MenuItemRecipe {
+  return {
+    id:
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `recipe_${Math.random().toString(36).slice(2, 10)}`,
+    menuItemId,
+    ingredientId,
+    quantity: 0,
+    affectsAvailability: true,
+  }
+}
+
 export function MenuAdminPage() {
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const ingredients = usePizzaOpsStore((state) => state.ingredients)
@@ -59,12 +72,14 @@ export function MenuAdminPage() {
   const sortedMenuItems = useMemo(() => sortMenuItems(menuItems.map(normalizeMenuItem)), [menuItems])
   const [selectedMenuItemId, setSelectedMenuItemId] = useState(sortedMenuItems[0]?.id ?? '')
   const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>(sortedMenuItems[0] ?? emptyDraft())
-  const [menuRecipeDraft, setMenuRecipeDraft] = useState<Record<string, number>>(
-    Object.fromEntries(
-      recipes
-        .filter((entry) => entry.menuItemId === sortedMenuItems[0]?.id)
-        .map((entry) => [entry.ingredientId, entry.quantity]),
-    ),
+  const [menuRecipeDraft, setMenuRecipeDraft] = useState<MenuItemRecipe[]>(
+    recipes
+      .filter((entry) => entry.menuItemId === sortedMenuItems[0]?.id)
+      .map((entry) => ({
+        ...entry,
+        id: entry.id || createRecipeRow(entry.menuItemId, entry.ingredientId).id,
+        affectsAvailability: entry.affectsAvailability !== false,
+      })),
   )
 
   const recipeSummary = useMemo(
@@ -80,7 +95,7 @@ export function MenuAdminPage() {
     if (!item) {
       setSelectedMenuItemId('')
       setMenuItemDraft(emptyDraft())
-      setMenuRecipeDraft({})
+      setMenuRecipeDraft([])
       return
     }
 
@@ -88,11 +103,13 @@ export function MenuAdminPage() {
     setSelectedMenuItemId(normalizedItem.id)
     setMenuItemDraft(normalizedItem)
     setMenuRecipeDraft(
-      Object.fromEntries(
-        recipes
-          .filter((entry) => entry.menuItemId === normalizedItem.id)
-          .map((entry) => [entry.ingredientId, entry.quantity]),
-      ),
+      recipes
+        .filter((entry) => entry.menuItemId === normalizedItem.id)
+        .map((entry) => ({
+          ...entry,
+          id: entry.id || createRecipeRow(entry.menuItemId, entry.ingredientId).id,
+          affectsAvailability: entry.affectsAvailability !== false,
+        })),
     )
   }
 
@@ -113,11 +130,14 @@ export function MenuAdminPage() {
 
     upsertMenuItem(
       saved,
-      ingredients.map((ingredient) => ({
-        menuItemId: id,
-        ingredientId: ingredient.id,
-        quantity: Number(menuRecipeDraft[ingredient.id] ?? 0),
-      })),
+      menuRecipeDraft
+        .filter((entry) => entry.ingredientId && Number(entry.quantity) > 0)
+        .map((entry) => ({
+          ...entry,
+          menuItemId: id,
+          quantity: Number(entry.quantity),
+          affectsAvailability: entry.affectsAvailability !== false,
+        })),
       'manager',
     )
 
@@ -145,6 +165,27 @@ export function MenuAdminPage() {
         }),
       )
     }
+  }
+
+  function addRecipeRow() {
+    setMenuRecipeDraft((current) => [...current, createRecipeRow(menuItemDraft.id)])
+  }
+
+  function updateRecipeRow(recipeId: string, updates: Partial<MenuItemRecipe>) {
+    setMenuRecipeDraft((current) =>
+      current.map((entry) =>
+        entry.id === recipeId
+          ? {
+              ...entry,
+              ...updates,
+            }
+          : entry,
+      ),
+    )
+  }
+
+  function removeRecipeRow(recipeId: string) {
+    setMenuRecipeDraft((current) => current.filter((entry) => entry.id !== recipeId))
   }
 
   return (
@@ -328,20 +369,98 @@ export function MenuAdminPage() {
         </Card>
 
         <Card className="p-5 sm:p-6">
-          <h3 className="font-display text-2xl font-bold">Recipe rows</h3>
-          <p className="mt-2 text-sm text-slate-500">
-            Enter the amount of each ingredient required for one item. Leave zero for ingredients not used.
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-display text-2xl font-bold">Recipe rows</h3>
+              <p className="mt-2 text-sm text-slate-500">
+                Each ingredient is saved as its own recipe line. Turn off availability blocking for garnish-style items.
+              </p>
+            </div>
+            <Button variant="secondary" onClick={addRecipeRow}>Add ingredient</Button>
+          </div>
           <div className="mt-4 grid gap-3">
-            {ingredients.map((ingredient) => (
-              <label key={ingredient.id} className="grid gap-2 rounded-2xl border border-slate-200 p-4 text-sm sm:grid-cols-[1fr_120px] sm:items-center">
-                <div>
-                  <p className="font-semibold">{ingredient.name}</p>
-                  <p className="text-slate-500">{ingredient.unit}</p>
-                </div>
-                <Input className="text-center" type="number" value={menuRecipeDraft[ingredient.id] ?? 0} onChange={(event) => setMenuRecipeDraft((current) => ({ ...current, [ingredient.id]: Number(event.target.value) }))} />
-              </label>
-            ))}
+            {menuRecipeDraft.length ? (
+              menuRecipeDraft.map((recipeRow) => {
+                const selectedIngredientIds = new Set(
+                  menuRecipeDraft
+                    .filter((entry) => entry.id !== recipeRow.id && entry.ingredientId)
+                    .map((entry) => entry.ingredientId),
+                )
+
+                return (
+                  <div
+                    key={recipeRow.id}
+                    className="grid gap-4 rounded-2xl border border-slate-200 p-4"
+                  >
+                    <div className="grid gap-4 sm:grid-cols-[1.3fr_120px_auto] sm:items-end">
+                      <label className="grid gap-2 text-sm">
+                        <span className="font-semibold text-slate-600">Ingredient</span>
+                        <select
+                          className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-slate-950"
+                          value={recipeRow.ingredientId}
+                          onChange={(event) =>
+                            updateRecipeRow(recipeRow.id, { ingredientId: event.target.value })
+                          }
+                        >
+                          <option value="">Select an ingredient</option>
+                          {ingredients
+                            .filter(
+                              (ingredient) =>
+                                ingredient.id === recipeRow.ingredientId ||
+                                !selectedIngredientIds.has(ingredient.id),
+                            )
+                            .map((ingredient) => (
+                              <option key={ingredient.id} value={ingredient.id}>
+                                {ingredient.name} ({ingredient.unit})
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <label className="grid gap-2 text-sm">
+                        <span className="font-semibold text-slate-600">Quantity</span>
+                        <Input
+                          className="text-center"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={recipeRow.quantity}
+                          onChange={(event) =>
+                            updateRecipeRow(recipeRow.id, {
+                              quantity: Number(event.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                      <Button variant="outline" onClick={() => removeRecipeRow(recipeRow.id)}>
+                        Remove
+                      </Button>
+                    </div>
+                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                      <input
+                        className="mt-1"
+                        type="checkbox"
+                        checked={recipeRow.affectsAvailability !== false}
+                        onChange={(event) =>
+                          updateRecipeRow(recipeRow.id, {
+                            affectsAvailability: event.target.checked,
+                          })
+                        }
+                      />
+                      <span>
+                        <span className="block font-semibold text-slate-700">Affects availability</span>
+                        <span className="block text-slate-500">
+                          If off, this ingredient still uses stock but will not hide the menu item when out of stock.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                )
+              })
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-sm text-slate-500">
+                No recipe rows yet. Add ingredients to build this menu item.
+              </div>
+            )}
           </div>
           <Button className="mt-5" onClick={saveMenuItem}>Save menu item</Button>
         </Card>

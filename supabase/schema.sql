@@ -70,11 +70,21 @@ create index if not exists idx_menu_items_sort_order
   on menu_items (category_slug, sort_order);
 
 create table if not exists menu_item_recipes (
+  id uuid primary key default gen_random_uuid(),
   menu_item_id text references menu_items(id),
   ingredient_id text references ingredients(id),
   quantity numeric not null,
-  primary key (menu_item_id, ingredient_id)
+  affects_availability boolean not null default true
 );
+
+create unique index if not exists idx_menu_item_recipes_menu_item_ingredient
+  on menu_item_recipes (menu_item_id, ingredient_id);
+
+create index if not exists idx_menu_item_recipes_menu_item_id
+  on menu_item_recipes (menu_item_id);
+
+create index if not exists idx_menu_item_recipes_ingredient_id
+  on menu_item_recipes (ingredient_id);
 
 create table if not exists modifiers (
   id text primary key,

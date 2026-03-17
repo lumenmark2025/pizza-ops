@@ -6,7 +6,7 @@ import type {
   Order,
   OrderItem,
   PricingSummary,
-} from '../types/domain'
+} from '../types/domain.js'
 
 function roundCurrency(value: number) {
   return Math.round(value * 100) / 100
