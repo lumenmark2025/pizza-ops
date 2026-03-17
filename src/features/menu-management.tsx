@@ -39,12 +39,9 @@ function emptyDraft(): MenuItem {
 }
 
 function createMenuItemId() {
-  const uniquePart =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID().replace(/-/g, '_')
-      : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
-
-  return `menu_${uniquePart}`
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function MenuImagePreview({ imageUrl, name }: { imageUrl?: string | null; name: string }) {

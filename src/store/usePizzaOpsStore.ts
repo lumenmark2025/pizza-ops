@@ -9,6 +9,7 @@ import {
   normalizeDiscountCodeInput,
   validateDiscountCode,
 } from '../lib/discounts'
+import { syncMasterDataToSupabase } from '../lib/master-data-sync'
 import { normalizeMenuItem } from '../lib/menu'
 import { SAFE_MODE } from '../lib/runtime-flags'
 import { allocateAcrossSlots, getAvailableSlots } from '../lib/slot-engine'
@@ -562,6 +563,20 @@ export const usePizzaOpsStore = create<StoreState>()(
         }
       }
 
+      const syncMasterData = async () => {
+        const patch = await syncMasterDataToSupabase(getPersistableSnapshot(get()))
+        if (!patch) {
+          return
+        }
+
+        commit(
+          () => ({
+            ...patch,
+          }),
+          { sync: false },
+        )
+      }
+
       return {
         ...createDemoState(),
         isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
@@ -569,6 +584,7 @@ export const usePizzaOpsStore = create<StoreState>()(
         setOnlineStatus: (status) => set({ isOnline: status }),
         hydrateRemote: async () => {
           if (SAFE_MODE) {
+            await syncMasterData()
             set({ remoteReady: true })
             return
           }
@@ -580,6 +596,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           hydrateRemotePromise = (async () => {
             console.info('[pizza-ops] hydrateRemote invoked')
             if (!canUseRealtimeSync()) {
+              await syncMasterData()
               set({ remoteReady: true })
               return
             }
@@ -599,10 +616,12 @@ export const usePizzaOpsStore = create<StoreState>()(
               } else {
                 set({ remoteReady: true })
               }
+              await syncMasterData()
               return
             }
 
             await persistRemoteSnapshot(current)
+            await syncMasterData()
             set({ remoteReady: true })
           })().finally(() => {
             hydrateRemotePromise = null
@@ -1311,6 +1330,7 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+          void syncMasterData()
         },
         setInventoryQuantity: (ingredientId, quantity, actor) => {
           const safeQuantity = Math.max(0, quantity)
@@ -1373,6 +1393,7 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+          void syncMasterData()
         },
         upsertDiscountCode: (discountCode, actor) => {
           const exists = get().discountCodes.some((entry) => entry.id === discountCode.id)

@@ -16,24 +16,16 @@ function emptyIngredient(): Ingredient {
   }
 }
 
-function buildIngredientId(name: string, ingredients: Ingredient[], editingIngredientId: string | null) {
-  const baseId = `ing_${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`.replace(/_+$/g, '')
-  if (!baseId) {
+function buildIngredientId(name: string, editingIngredientId: string | null) {
+  if (!name.trim()) {
     return ''
   }
-
-  let nextId = baseId
-  let suffix = 2
-  while (
-    ingredients.some(
-      (ingredient) => ingredient.id === nextId && ingredient.id !== editingIngredientId,
-    )
-  ) {
-    nextId = `${baseId}_${suffix}`
-    suffix += 1
+  if (editingIngredientId) {
+    return editingIngredientId
   }
-
-  return nextId
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function IngredientsAdminPage() {
@@ -64,7 +56,7 @@ export function IngredientsAdminPage() {
       return
     }
 
-    const nextId = editingIngredientId || buildIngredientId(ingredientDraft.name.trim(), ingredients, null)
+    const nextId = buildIngredientId(ingredientDraft.name.trim(), editingIngredientId)
     if (!nextId) {
       return
     }
