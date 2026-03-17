@@ -220,6 +220,10 @@ function useCustomerVoucher(
   }, [basketSignature, draft.basket, draft.discountCode, menuItems, patchDraft])
 
   async function applyDiscountCode() {
+    if (isApplyingDiscount) {
+      return { ok: false as const }
+    }
+
     if (!discountCodeInput.trim()) {
       setDiscountMessage('Enter a discount or gift voucher code.')
       return { ok: false as const }
@@ -231,28 +235,33 @@ function useCustomerVoucher(
     }
 
     setIsApplyingDiscount(true)
-    const result = await validatePublicDiscountCode({
-      code: discountCodeInput,
-      items: draft.basket,
-    })
-    setIsApplyingDiscount(false)
+    setDiscountMessage(null)
 
-    if (!result.ok) {
-      setDiscountMessage(result.error)
-      return { ok: false as const, error: result.error }
-    }
+    try {
+      const result = await validatePublicDiscountCode({
+        code: discountCodeInput,
+        items: draft.basket,
+      })
 
-    patchDraft({
-      ...getDraftResetPatch(),
-      discountCode: discountCodeInput.trim(),
-      appliedOrderDiscount: result.appliedOrderDiscount,
-      pricingSummary: result.pricingSummary,
-    })
-    setDiscountMessage(result.message)
-    return {
-      ok: true as const,
-      appliedOrderDiscount: result.appliedOrderDiscount,
-      pricingSummary: result.pricingSummary,
+      if (!result.ok) {
+        setDiscountMessage(result.error)
+        return { ok: false as const, error: result.error }
+      }
+
+      patchDraft({
+        ...getDraftResetPatch(),
+        discountCode: discountCodeInput.trim(),
+        appliedOrderDiscount: result.appliedOrderDiscount,
+        pricingSummary: result.pricingSummary,
+      })
+      setDiscountMessage(result.message)
+      return {
+        ok: true as const,
+        appliedOrderDiscount: result.appliedOrderDiscount,
+        pricingSummary: result.pricingSummary,
+      }
+    } finally {
+      setIsApplyingDiscount(false)
     }
   }
 
