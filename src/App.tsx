@@ -8,6 +8,7 @@ import {
   CustomerServicePage,
 } from './features/customer-ordering'
 import { AdminPage } from './features/admin-ops'
+import { DiscountCodesAdminPage } from './features/discount-management'
 import { IngredientsAdminPage } from './features/ingredient-management'
 import { LocationEditPage, LocationNewPage, LocationsListPage } from './features/location-management'
 import { MenuAdminPage } from './features/menu-management'
@@ -81,6 +82,7 @@ function App() {
       <Route path="/admin/services/new" element={<ServiceNewPage />} />
       <Route path="/admin/services/:serviceId" element={<ServiceEditPage />} />
       <Route path="/admin/menu" element={<MenuAdminPage />} />
+      <Route path="/admin/discounts" element={<DiscountCodesAdminPage />} />
       <Route path="/admin/ingredients" element={<IngredientsAdminPage />} />
       <Route path="/admin/modifiers" element={<ModifiersAdminPage />} />
       <Route path="/payments/:paymentId" element={<PaymentPage />} />

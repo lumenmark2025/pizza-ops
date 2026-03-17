@@ -9,6 +9,10 @@ export type OrderSource =
 export type PaymentMethod = 'sumup_online' | 'cash' | 'terminal' | 'manual'
 export type PaymentStatus = 'pending' | 'authorized' | 'paid' | 'failed' | 'refunded'
 export type SyncStatus = 'pending' | 'processing' | 'synced' | 'failed'
+export type DiscountType = 'percentage' | 'fixed_amount'
+export type DiscountScope = 'order' | 'item' | 'both'
+export type DiscountUsageMode = 'single_use' | 'limited_use' | 'unlimited'
+export type DiscountSource = 'code' | 'manual_quick_button' | 'manual_custom'
 
 export type ServiceConfig = {
   id: string
@@ -100,6 +104,60 @@ export type OrderItemModifier = {
   quantity: number
 }
 
+export type AppliedDiscountSummary = {
+  source: DiscountSource
+  scope: 'order' | 'item'
+  discountType: DiscountType
+  discountValue: number
+  appliedAmount: number
+  description: string
+  code?: string
+  discountCodeId?: string
+  appliedBy?: string
+  appliedAt: string
+}
+
+export type PricingSummary = {
+  subtotalAmount: number
+  itemDiscountAmount: number
+  orderDiscountAmount: number
+  totalDiscountAmount: number
+  finalTotalAmount: number
+}
+
+export type DiscountCode = {
+  id: string
+  code: string
+  isActive: boolean
+  discountType: DiscountType
+  discountValue: number
+  scope: DiscountScope
+  usageMode: DiscountUsageMode
+  maxUses?: number | null
+  usedCount: number
+  validFrom?: string | null
+  validUntil?: string | null
+  minimumOrderValue?: number | null
+  appliesToMenuItemId?: string | null
+  appliesToCategorySlug?: string | null
+  notes?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type DiscountCodeRedemption = {
+  id: string
+  discountCodeId: string
+  orderId: string
+  orderItemId?: string | null
+  redeemedAt: string
+  redeemedBy?: string | null
+  codeSnapshot: string
+  discountTypeSnapshot: DiscountType
+  discountValueSnapshot: number
+  appliedDiscountAmount: number
+}
+
 export type Customer = {
   id: string
   name: string
@@ -113,6 +171,10 @@ export type OrderItem = {
   notes?: string
   modifiers?: OrderItemModifier[]
   progressCount?: number
+  originalUnitPrice?: number
+  itemDiscountAmount?: number
+  finalUnitPrice?: number
+  appliedDiscountSummary?: AppliedDiscountSummary | null
 }
 
 export type SlotAllocation = {
@@ -138,7 +200,13 @@ export type Order = {
   slotAllocations: SlotAllocation[]
   notes?: string
   pizzaCount: number
+  subtotalAmount?: number
+  totalDiscountAmount?: number
+  orderDiscountAmount?: number
   totalAmount: number
+  appliedDiscountCodeId?: string | null
+  appliedDiscountSummary?: AppliedDiscountSummary | null
+  pricingSummary?: PricingSummary
   paymentStatus: PaymentStatus
   paymentMethod: PaymentMethod
   loyaltySyncStatus: SyncStatus
@@ -198,6 +266,7 @@ export type ActivityLogEntry = {
     | 'service_updated'
     | 'pager_assigned'
     | 'item_progressed'
+    | 'discount_applied'
     | 'realtime_synced'
   createdAt: string
   actor: string
@@ -224,6 +293,8 @@ export type ServiceSnapshot = {
   inventory: ServiceInventory[]
   inventoryDefaults: ServiceInventory[]
   modifiers: Modifier[]
+  discountCodes: DiscountCode[]
+  discountCodeRedemptions: DiscountCodeRedemption[]
   customers: Customer[]
   orders: Order[]
   history: OrderStatusHistory[]

@@ -217,6 +217,7 @@ export function ServiceEditPanel() {
           <p className="mt-2 text-sm text-slate-500">Menu, ingredients, and modifiers are managed globally outside this service.</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link to="/admin/menu"><Button variant="secondary">Open menu</Button></Link>
+            <Link to="/admin/discounts"><Button variant="secondary">Open discounts</Button></Link>
             <Link to="/admin/ingredients"><Button variant="secondary">Open ingredients</Button></Link>
             <Link to="/admin/modifiers"><Button variant="secondary">Open modifiers</Button></Link>
           </div>
@@ -307,6 +308,7 @@ export function AdminPage() {
             <Link to="/admin/services"><Button>Open services</Button></Link>
             <Link to="/admin/locations"><Button variant="secondary">Open locations</Button></Link>
             <Link to="/admin/menu"><Button variant="secondary">Open menu</Button></Link>
+            <Link to="/admin/discounts"><Button variant="secondary">Open discounts</Button></Link>
             <Link to="/admin/ingredients"><Button variant="secondary">Open ingredients</Button></Link>
             <Link to="/admin/modifiers"><Button variant="secondary">Open modifiers</Button></Link>
             <Link to={`/admin/services/${service.id}`}><Button variant="outline">Open active service</Button></Link>

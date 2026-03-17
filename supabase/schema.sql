@@ -88,6 +88,26 @@ create table if not exists menu_item_modifiers (
   primary key (menu_item_id, modifier_id)
 );
 
+create table if not exists discount_codes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null,
+  is_active boolean not null default true,
+  discount_type text not null,
+  discount_value numeric not null default 0,
+  scope text not null default 'order',
+  usage_mode text not null default 'single_use',
+  max_uses integer,
+  used_count integer not null default 0,
+  valid_from timestamptz,
+  valid_until timestamptz,
+  minimum_order_value numeric,
+  applies_to_menu_item_id text references menu_items(id),
+  applies_to_category_slug text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists service_inventory (
   service_id text references services(id),
   ingredient_id text references ingredients(id),
@@ -110,7 +130,13 @@ create table if not exists orders (
   status text not null check (status in ('taken', 'prepping', 'in_oven', 'ready', 'completed')),
   promised_time timestamptz not null,
   pizza_count integer not null default 0,
+  subtotal_amount numeric not null default 0,
+  total_discount_amount numeric not null default 0,
+  order_discount_amount numeric not null default 0,
   total_amount numeric not null default 0,
+  applied_discount_code_id uuid references discount_codes(id) on delete set null,
+  applied_discount_summary jsonb,
+  pricing_summary jsonb,
   pager_number integer,
   payment_status text not null,
   payment_method text not null,
@@ -129,6 +155,10 @@ create table if not exists order_items (
   order_id text references orders(id) on delete cascade,
   menu_item_id text references menu_items(id),
   quantity integer not null,
+  original_unit_price numeric,
+  item_discount_amount numeric not null default 0,
+  final_unit_price numeric,
+  applied_discount_summary jsonb,
   progress_count integer not null default 0,
   notes text
 );
@@ -140,6 +170,19 @@ create table if not exists order_item_modifiers (
   modifier_name text not null,
   price_delta numeric not null default 0,
   quantity integer not null default 1
+);
+
+create table if not exists discount_code_redemptions (
+  id uuid primary key default gen_random_uuid(),
+  discount_code_id uuid not null references discount_codes(id) on delete cascade,
+  order_id text not null references orders(id) on delete cascade,
+  order_item_id text references order_items(id) on delete set null,
+  redeemed_at timestamptz not null default now(),
+  redeemed_by_user_id text,
+  code_snapshot text not null,
+  discount_type_snapshot text not null,
+  discount_value_snapshot numeric not null,
+  applied_discount_amount numeric not null default 0
 );
 
 create table if not exists service_slots (

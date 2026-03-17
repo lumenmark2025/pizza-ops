@@ -124,6 +124,29 @@ export function MenuAdminPage() {
     loadMenuItem(saved)
   }
 
+  function toggleMenuVisibility(item: MenuItem) {
+    const normalizedItem = normalizeMenuItem(item)
+    upsertMenuItem(
+      {
+        ...normalizedItem,
+        active: normalizedItem.active === false,
+      },
+      recipes
+        .filter((entry) => entry.menuItemId === normalizedItem.id)
+        .map((entry) => ({ ...entry })),
+      'manager',
+    )
+
+    if (selectedMenuItemId === normalizedItem.id) {
+      setMenuItemDraft((current) =>
+        normalizeMenuItem({
+          ...current,
+          active: normalizedItem.active === false,
+        }),
+      )
+    }
+  }
+
   return (
     <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
       <div className="grid gap-4">
@@ -141,20 +164,20 @@ export function MenuAdminPage() {
           </div>
           <div className="mt-4 space-y-3">
             {sortedMenuItems.map((item) => (
-              <button
+              <div
                 key={item.id}
-                className={`w-full rounded-2xl border p-4 text-left transition ${
+                className={`rounded-2xl border p-4 transition ${
                   selectedMenuItemId === item.id
                     ? 'border-orange-400 bg-orange-50'
                     : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
-                onClick={() => loadMenuItem(item)}
               >
                 <div className="flex items-start gap-4">
                   <div className="w-24 shrink-0">
                     <MenuImagePreview imageUrl={item.imageUrl} name={item.name} />
                   </div>
                   <div className="min-w-0 flex-1">
+                    <button className="w-full text-left" onClick={() => loadMenuItem(item)}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -170,15 +193,23 @@ export function MenuAdminPage() {
                         </p>
                       </div>
                     </div>
+                    </button>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Badge variant={item.active === false ? 'slate' : 'green'}>
-                        {item.active === false ? 'Inactive' : 'Active'}
+                        {item.active === false ? 'Hidden from ordering' : 'Shown on menu'}
                       </Badge>
                       <Badge variant="slate">Sort {getMenuItemSortOrder(item)}</Badge>
+                      <Button
+                        size="sm"
+                        variant={item.active === false ? 'outline' : 'secondary'}
+                        onClick={() => toggleMenuVisibility(item)}
+                      >
+                        {item.active === false ? 'Show on menu' : 'Hide from menu'}
+                      </Button>
                     </div>
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </Card>
@@ -270,15 +301,15 @@ export function MenuAdminPage() {
                 <Input value={menuItemDraft.imageUrl ?? ''} onChange={(event) => setMenuItemDraft((current) => normalizeMenuItem({ ...current, imageUrl: event.target.value }))} />
               </label>
               <label className="grid gap-2 text-sm">
-                <span className="font-semibold text-slate-600">Availability</span>
-                <select
-                  className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-slate-950"
-                  value={menuItemDraft.active === false ? 'inactive' : 'active'}
-                  onChange={(event) => setMenuItemDraft((current) => normalizeMenuItem({ ...current, active: event.target.value === 'active' }))}
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
+                <span className="font-semibold text-slate-600">Show on menu</span>
+                <div className="flex h-11 items-center gap-3 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950">
+                  <input
+                    type="checkbox"
+                    checked={menuItemDraft.active !== false}
+                    onChange={(event) => setMenuItemDraft((current) => normalizeMenuItem({ ...current, active: event.target.checked }))}
+                  />
+                  <span>{menuItemDraft.active === false ? 'Hidden from customer and order-entry menus' : 'Visible on customer and order-entry menus'}</span>
+                </div>
               </label>
             </div>
             <label className="grid gap-2 text-sm">

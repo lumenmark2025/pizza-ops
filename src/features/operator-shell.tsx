@@ -96,6 +96,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 { href: '/admin/services', label: 'Services', icon: ClipboardList },
                 { href: '/admin/locations', label: 'Locations', icon: Settings2 },
                 { href: '/admin/menu', label: 'Menu', icon: Pizza },
+                { href: '/admin/discounts', label: 'Discounts', icon: ReceiptText },
                 { href: '/admin/ingredients', label: 'Ingredients', icon: ClipboardList },
                 { href: '/admin/modifiers', label: 'Modifiers', icon: Settings2 },
                 { href: '/order', label: 'Public Order', icon: SmartphoneNfc },

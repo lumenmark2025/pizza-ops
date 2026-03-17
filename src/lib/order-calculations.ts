@@ -1,4 +1,5 @@
 import type { MenuItem, OrderItem, OrderItemModifier } from '../types/domain'
+import { getOrderItemFinalLineTotal } from './discounts'
 
 export function getModifierTotal(modifiers: OrderItemModifier[] = []) {
   return modifiers.reduce(
@@ -14,7 +15,7 @@ export function getOrderItemUnitPrice(item: OrderItem, menuItems: MenuItem[]) {
 
 export function getOrderItemsTotal(items: OrderItem[], menuItems: MenuItem[]) {
   return items.reduce(
-    (sum, item) => sum + getOrderItemUnitPrice(item, menuItems) * item.quantity,
+    (sum, item) => sum + getOrderItemFinalLineTotal(item, menuItems),
     0,
   )
 }

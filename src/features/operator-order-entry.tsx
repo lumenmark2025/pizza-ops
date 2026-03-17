@@ -5,13 +5,23 @@ import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { createHostedSumUpCheckout } from '../integrations/sumup'
+import {
+  applyItemDiscount,
+  buildCodeDiscountSummary,
+  buildManualDiscountSummary,
+  calculateDiscountAmount,
+  getOrderItemFinalLineTotal,
+  getOrderItemOriginalLineTotal,
+  getOrderPricingSummary,
+  normalizeDiscountCodeInput,
+  validateDiscountCode,
+} from '../lib/discounts'
 import { getMenuCategoryLabel, isPizzaMenuItem, sortMenuItems } from '../lib/menu'
-import { getOrderItemsTotal } from '../lib/order-calculations'
 import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
 import { cn, currency, titleCase } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
-import type { Modifier, OrderItem, OrderSource, PaymentMethod } from '../types/domain'
+import type { AppliedDiscountSummary, DiscountCode, Modifier, OrderItem, OrderSource, PaymentMethod } from '../types/domain'
 
 const orderSources: OrderSource[] = ['walkup', 'web', 'phone', 'whatsapp', 'messenger', 'manual']
 const paymentMethods: PaymentMethod[] = ['sumup_online', 'cash', 'terminal', 'manual']
@@ -35,6 +45,7 @@ function ServiceBanner() {
 
 export function OrderEntryPage() {
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
+  const discountCodes = usePizzaOpsStore((state) => state.discountCodes)
   const modifiers = usePizzaOpsStore((state) => state.modifiers)
   const orders = usePizzaOpsStore((state) => state.orders)
   const recipes = usePizzaOpsStore((state) => state.recipes)
@@ -53,7 +64,10 @@ export function OrderEntryPage() {
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null)
   const [pagerNumber, setPagerNumber] = useState<string>('')
   const [message, setMessage] = useState<string | null>(null)
+  const [discountCodeInput, setDiscountCodeInput] = useState('')
+  const [discountMessage, setDiscountMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [orderDiscountDraft, setOrderDiscountDraft] = useState<AppliedDiscountSummary | null>(null)
 
   const availability = useMemo(
     () => getMenuAvailability(inventory, recipes, menuItems, orders),
@@ -70,8 +84,29 @@ export function OrderEntryPage() {
         .map((entry) => entry.pagerNumber as number),
     [orders],
   )
+
+  const resolvedOrderDiscount = useMemo(() => {
+    if (!orderDiscountDraft) {
+      return null
+    }
+
+    const provisionalPricing = getOrderPricingSummary(basket, menuItems, 0)
+    return {
+      ...orderDiscountDraft,
+      appliedAmount: calculateDiscountAmount(
+        orderDiscountDraft.discountType,
+        orderDiscountDraft.discountValue,
+        provisionalPricing.subtotalAmount - provisionalPricing.itemDiscountAmount,
+      ),
+    }
+  }, [basket, menuItems, orderDiscountDraft])
+
   const availableSlots = useMemo(() => getAvailableTimes(basket), [basket, getAvailableTimes])
-  const total = useMemo(() => getOrderItemsTotal(basket, menuItems), [basket, menuItems])
+  const pricingSummary = useMemo(
+    () => getOrderPricingSummary(basket, menuItems, resolvedOrderDiscount?.appliedAmount ?? 0),
+    [basket, menuItems, resolvedOrderDiscount],
+  )
+  const total = pricingSummary.finalTotalAmount
 
   useEffect(() => {
     if (!selectedTime && availableSlots[0]) {
@@ -89,7 +124,15 @@ export function OrderEntryPage() {
   function updateQuantity(itemId: string, quantity: number) {
     setBasket((current) =>
       current
-        .map((item) => (item.id === itemId ? { ...item, quantity } : item))
+        .map((item) =>
+          item.id === itemId
+            ? applyItemDiscount(
+                { ...item, quantity },
+                menuItems,
+                item.appliedDiscountSummary ?? null,
+              )
+            : item,
+        )
         .filter((item) => item.quantity > 0),
     )
   }
@@ -102,7 +145,7 @@ export function OrderEntryPage() {
         }
 
         const existing = item.modifiers?.find((entry) => entry.modifierId === modifier.id)
-        return {
+        const updatedItem = {
           ...item,
           modifiers: existing
             ? item.modifiers?.filter((entry) => entry.modifierId !== modifier.id)
@@ -116,6 +159,8 @@ export function OrderEntryPage() {
                 },
               ],
         }
+
+        return applyItemDiscount(updatedItem, menuItems, item.appliedDiscountSummary ?? null)
       }),
     )
   }
@@ -127,6 +172,104 @@ export function OrderEntryPage() {
         ? isPizzaMenuItem(target)
         : modifier.menuItemIds.includes(menuItemId),
     )
+  }
+
+  function applyOrderManualDiscount(percent: number) {
+    const appliedAt = new Date().toISOString()
+    setOrderDiscountDraft(
+      buildManualDiscountSummary({
+        scope: 'order',
+        discountType: 'percentage',
+        discountValue: percent,
+        appliedAmount: calculateDiscountAmount(
+          'percentage',
+          percent,
+          pricingSummary.subtotalAmount - pricingSummary.itemDiscountAmount,
+        ),
+        source: 'manual_quick_button',
+        appliedBy: 'manager',
+        appliedAt,
+      }),
+    )
+    setDiscountMessage(null)
+  }
+
+  function clearOrderDiscount() {
+    setOrderDiscountDraft(null)
+    setDiscountCodeInput('')
+    setDiscountMessage(null)
+  }
+
+  function applyItemManualDiscount(itemId: string, percent: number) {
+    const appliedAt = new Date().toISOString()
+    setBasket((current) =>
+      current.map((item) => {
+        if (item.id !== itemId) {
+          return item
+        }
+
+        const originalLineTotal = getOrderItemOriginalLineTotal(item, menuItems)
+
+        return applyItemDiscount(
+          item,
+          menuItems,
+          buildManualDiscountSummary({
+            scope: 'item',
+            discountType: 'percentage',
+            discountValue: percent,
+            appliedAmount: calculateDiscountAmount('percentage', percent, originalLineTotal),
+            source: 'manual_quick_button',
+            appliedBy: 'manager',
+            appliedAt,
+          }),
+        )
+      }),
+    )
+  }
+
+  function clearItemDiscount(itemId: string) {
+    setBasket((current) =>
+      current.map((item) => (item.id === itemId ? applyItemDiscount(item, menuItems, null) : item)),
+    )
+  }
+
+  function applyDiscountCode() {
+    const normalized = normalizeDiscountCodeInput(discountCodeInput)
+    const matchedCode = discountCodes.find(
+      (entry) => normalizeDiscountCodeInput(entry.code) === normalized,
+    )
+    const now = new Date().toISOString()
+    const validation = validateDiscountCode({
+      discountCode: matchedCode,
+      nowIso: now,
+      items: basket,
+      menuItems,
+      scope: 'order',
+    })
+
+    if (!validation.ok) {
+      setDiscountMessage(validation.error)
+      return
+    }
+
+    const code = matchedCode as DiscountCode
+    setOrderDiscountDraft(
+      buildCodeDiscountSummary({
+        scope: 'order',
+        discountType: code.discountType,
+        discountValue: code.discountValue,
+        appliedAmount: calculateDiscountAmount(
+          code.discountType,
+          code.discountValue,
+          pricingSummary.subtotalAmount - pricingSummary.itemDiscountAmount,
+        ),
+        code: code.code,
+        discountCodeId: code.id,
+        appliedBy: 'manager',
+        appliedAt: now,
+      }),
+    )
+    setDiscountMessage(`Code ${code.code} applied.`)
   }
 
   async function submitOrder() {
@@ -151,6 +294,7 @@ export function OrderEntryPage() {
       paymentMethod,
       notes,
       pagerNumber: source === 'walkup' && pagerNumber ? Number(pagerNumber) : null,
+      appliedOrderDiscount: resolvedOrderDiscount,
     })
     if (!result.ok) {
       setMessage(result.error)
@@ -188,6 +332,9 @@ export function OrderEntryPage() {
     setMobile('')
     setNotes('')
     setPagerNumber('')
+    setOrderDiscountDraft(null)
+    setDiscountCodeInput('')
+    setDiscountMessage(null)
     setMessage(`Order created for ${formatTime(selectedTime)}.`)
     setIsSubmitting(false)
   }
@@ -231,6 +378,32 @@ export function OrderEntryPage() {
 
       <Card className="p-4 sm:p-5">
         <h2 className="font-display text-2xl font-bold">Basket and customer</h2>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Order discount</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {resolvedOrderDiscount
+                  ? `${resolvedOrderDiscount.description} (${currency(resolvedOrderDiscount.appliedAmount)} off)`
+                  : 'No order-level discount applied'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[10, 20, 50, 100].map((percent) => (
+                <Button key={percent} size="sm" variant="secondary" onClick={() => applyOrderManualDiscount(percent)}>
+                  {percent}% off
+                </Button>
+              ))}
+              <Button size="sm" variant="outline" onClick={clearOrderDiscount}>Clear</Button>
+            </div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <Input placeholder="Discount or gift voucher code" value={discountCodeInput} onChange={(event) => setDiscountCodeInput(event.target.value)} />
+            <Button onClick={applyDiscountCode}>Apply code</Button>
+          </div>
+          {discountMessage ? <p className="mt-2 text-sm text-slate-500">{discountMessage}</p> : null}
+        </div>
+
         <div className="mt-4 grid gap-3">
           <Input placeholder="Customer name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
           <Input placeholder="Mobile (optional)" value={mobile} onChange={(event) => setMobile(event.target.value)} />
@@ -254,6 +427,7 @@ export function OrderEntryPage() {
           ) : null}
           <Textarea placeholder="Notes, modifiers, handoff details" value={notes} onChange={(event) => setNotes(event.target.value)} />
         </div>
+
         <div className="mt-5 space-y-3">
           {basket.length ? basket.map((item) => {
             const menuItem = menuItems.find((entry) => entry.id === item.menuItemId)
@@ -264,9 +438,18 @@ export function OrderEntryPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="font-semibold">{menuItem.name}</p>
-                    <p className="text-sm text-slate-500">{currency(menuItem.price)} each</p>
+                    <p className="text-sm text-slate-500">
+                      {item.appliedDiscountSummary
+                        ? `${currency(getOrderItemFinalLineTotal(item, menuItems))} after line discount`
+                        : `${currency(menuItem.price)} each`}
+                    </p>
                     {item.modifiers?.length ? (
                       <p className="mt-1 text-xs text-slate-500">{item.modifiers.map((modifier) => modifier.name).join(', ')}</p>
+                    ) : null}
+                    {item.appliedDiscountSummary ? (
+                      <p className="mt-1 text-xs font-semibold text-emerald-700">
+                        {item.appliedDiscountSummary.description} ({currency(item.itemDiscountAmount ?? 0)} off)
+                      </p>
                     ) : null}
                   </div>
                   <div className="flex items-center gap-2">
@@ -279,6 +462,14 @@ export function OrderEntryPage() {
                       </Button>
                     ) : null}
                   </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {[10, 20, 50, 100].map((percent) => (
+                    <Button key={percent} size="sm" variant="outline" onClick={() => applyItemManualDiscount(item.id, percent)}>
+                      {percent}% off item
+                    </Button>
+                  ))}
+                  <Button size="sm" variant="outline" onClick={() => clearItemDiscount(item.id)}>Clear item discount</Button>
                 </div>
                 {eligibleModifiers.length && expandedItemId === item.id ? (
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -303,10 +494,25 @@ export function OrderEntryPage() {
             )
           }) : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Add items to build the basket.</p>}
         </div>
+
         <div className="mt-5 rounded-2xl bg-slate-950 p-4 text-white">
           <div className="flex items-center justify-between">
             <p className="text-sm uppercase tracking-[0.2em] text-slate-300">Collection slot</p>
             <p className="text-2xl font-bold">{currency(total)}</p>
+          </div>
+          <div className="mt-3 grid gap-1 text-sm text-slate-300">
+            <div className="flex items-center justify-between">
+              <span>Subtotal</span>
+              <span>{currency(pricingSummary.subtotalAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Total discount</span>
+              <span>-{currency(pricingSummary.totalDiscountAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between font-semibold text-white">
+              <span>Final total</span>
+              <span>{currency(pricingSummary.finalTotalAmount)}</span>
+            </div>
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {availableSlots.slice(0, 8).map((slot) => (

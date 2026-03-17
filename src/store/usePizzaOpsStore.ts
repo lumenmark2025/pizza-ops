@@ -2,8 +2,14 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { seedSnapshot } from '../data/seed'
 import { buildLoyversePayload } from '../integrations/loyverse'
+import {
+  buildCodeDiscountSummary,
+  calculateDiscountAmount,
+  getOrderPricingSummary,
+  normalizeDiscountCodeInput,
+  validateDiscountCode,
+} from '../lib/discounts'
 import { normalizeMenuItem } from '../lib/menu'
-import { getOrderItemsTotal } from '../lib/order-calculations'
 import { SAFE_MODE } from '../lib/runtime-flags'
 import { allocateAcrossSlots, getAvailableSlots } from '../lib/slot-engine'
 import {
@@ -16,8 +22,11 @@ import { supabase } from '../lib/supabase'
 import { addMinutes, combineDateAndTime, formatTime, toIsoNow } from '../lib/time'
 import type {
   ActivityLogEntry,
+  AppliedDiscountSummary,
   BrandingSettings,
   Customer,
+  DiscountCode,
+  DiscountCodeRedemption,
   Ingredient,
   Location,
   MenuItem,
@@ -44,6 +53,7 @@ type CreateOrderInput = {
   paymentMethod: PaymentMethod
   notes?: string
   pagerNumber?: number | null
+  appliedOrderDiscount?: AppliedDiscountSummary | null
 }
 
 type StoreState = ServiceSnapshot & {
@@ -79,6 +89,7 @@ type StoreState = ServiceSnapshot & {
     recipeRows: MenuItemRecipe[],
     actor: string,
   ) => void
+  upsertDiscountCode: (discountCode: DiscountCode, actor: string) => void
   upsertModifier: (modifier: Modifier, actor: string) => void
   deleteModifier: (modifierId: string, actor: string) => void
   assignPager: (orderId: string, pagerNumber: number | null, actor: string) => { ok: boolean; error?: string }
@@ -99,6 +110,8 @@ const SNAPSHOT_KEYS = [
   'inventory',
   'inventoryDefaults',
   'modifiers',
+  'discountCodes',
+  'discountCodeRedemptions',
   'customers',
   'orders',
   'history',
@@ -521,7 +534,52 @@ export const usePizzaOpsStore = create<StoreState>()(
             progressCount: item.progressCount ?? 0,
             modifiers: item.modifiers ?? [],
           }))
-          const totalAmount = getOrderItemsTotal(orderItems, state.menuItems)
+          let appliedOrderDiscount = input.appliedOrderDiscount ?? null
+          if (appliedOrderDiscount?.source === 'code' && appliedOrderDiscount.code) {
+            const matchedCode = state.discountCodes.find(
+              (entry) => normalizeDiscountCodeInput(entry.code) === normalizeDiscountCodeInput(appliedOrderDiscount?.code ?? ''),
+            )
+            const validation = validateDiscountCode({
+              discountCode: matchedCode,
+              nowIso: now,
+              items: orderItems,
+              menuItems: state.menuItems,
+              scope: 'order',
+            })
+
+            if (!validation.ok) {
+              return { ok: false as const, error: validation.error }
+            }
+
+            if (!matchedCode) {
+              return { ok: false as const, error: 'Discount code not found.' }
+            }
+
+            const preOrderPricing = getOrderPricingSummary(orderItems, state.menuItems, 0)
+            const appliedAmount = calculateDiscountAmount(
+              matchedCode.discountType,
+              matchedCode.discountValue,
+              preOrderPricing.subtotalAmount - preOrderPricing.itemDiscountAmount,
+            )
+
+            appliedOrderDiscount = buildCodeDiscountSummary({
+              scope: 'order',
+              discountType: matchedCode.discountType,
+              discountValue: matchedCode.discountValue,
+              appliedAmount,
+              code: matchedCode.code,
+              discountCodeId: matchedCode.id,
+              appliedBy: input.source === 'web' ? 'customer' : 'manager',
+              appliedAt: now,
+            })
+          }
+
+          const pricingSummary = getOrderPricingSummary(
+            orderItems,
+            state.menuItems,
+            appliedOrderDiscount?.appliedAmount ?? 0,
+          )
+          const totalAmount = pricingSummary.finalTotalAmount
 
           const paymentStatus: PaymentStatus =
             input.paymentMethod === 'cash' || input.paymentMethod === 'terminal' ? 'paid' : 'pending'
@@ -536,7 +594,14 @@ export const usePizzaOpsStore = create<StoreState>()(
             slotAllocations: allocation.allocations,
             pagerNumber: input.pagerNumber ?? null,
             pizzaCount: capacityUnits,
+            subtotalAmount: pricingSummary.subtotalAmount,
+            totalDiscountAmount: pricingSummary.totalDiscountAmount,
+            orderDiscountAmount: pricingSummary.orderDiscountAmount,
             totalAmount,
+            appliedDiscountCodeId:
+              appliedOrderDiscount?.source === 'code' ? appliedOrderDiscount.discountCodeId ?? null : null,
+            appliedDiscountSummary: appliedOrderDiscount,
+            pricingSummary,
             paymentStatus,
             paymentMethod: input.paymentMethod,
             loyaltySyncStatus: 'pending',
@@ -578,10 +643,34 @@ export const usePizzaOpsStore = create<StoreState>()(
             payload: buildLoyversePayload(order),
           }
 
+          const redemptions: DiscountCodeRedemption[] =
+            appliedOrderDiscount?.source === 'code' && appliedOrderDiscount.discountCodeId
+              ? [
+                  {
+                    id: randomId('redeem'),
+                    discountCodeId: appliedOrderDiscount.discountCodeId,
+                    orderId,
+                    orderItemId: null,
+                    redeemedAt: now,
+                    redeemedBy: input.source === 'web' ? 'customer' : 'manager',
+                    codeSnapshot: appliedOrderDiscount.code ?? '',
+                    discountTypeSnapshot: appliedOrderDiscount.discountType,
+                    discountValueSnapshot: appliedOrderDiscount.discountValue,
+                    appliedDiscountAmount: appliedOrderDiscount.appliedAmount,
+                  },
+                ]
+              : []
+
           commit((current) => ({
             customers: [...current.customers, customer],
             orders: [order, ...current.orders],
             payments: [payment, ...current.payments],
+            discountCodes: current.discountCodes.map((entry) =>
+              entry.id === appliedOrderDiscount?.discountCodeId
+                ? { ...entry, usedCount: entry.usedCount + 1, updatedAt: now }
+                : entry,
+            ),
+            discountCodeRedemptions: [...redemptions, ...current.discountCodeRedemptions],
             loyverseQueue: [queueItem, ...current.loyverseQueue],
             history: [
               {
@@ -596,6 +685,16 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.history,
             ],
             activityLog: [
+              ...(appliedOrderDiscount
+                ? [
+                    createActivity(
+                      'discount_applied',
+                      appliedOrderDiscount.appliedBy ?? 'manager',
+                      `${order.reference} ${appliedOrderDiscount.description} (£${appliedOrderDiscount.appliedAmount.toFixed(2)}).`,
+                      order.id,
+                    ),
+                  ]
+                : []),
               createActivity(
                 'order_created',
                 'order_taker',
@@ -904,6 +1003,13 @@ export const usePizzaOpsStore = create<StoreState>()(
 
           commit(() => ({
             ...createDemoState(),
+            locations: current.locations.map((entry) => ({ ...entry })),
+            ingredients: current.ingredients.map((entry) => ({ ...entry })),
+            menuItems: current.menuItems.map((entry) => ({ ...entry })),
+            recipes: current.recipes.map((entry) => ({ ...entry })),
+            modifiers: current.modifiers.map((entry) => ({ ...entry })),
+            discountCodes: current.discountCodes.map((entry) => ({ ...entry })),
+            discountCodeRedemptions: current.discountCodeRedemptions.map((entry) => ({ ...entry })),
             service: nextService,
             services: [nextService, ...current.services.filter((entry) => entry.id !== nextService.id)],
             serviceLocations: current.serviceLocations,
@@ -1063,6 +1169,18 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
+        upsertDiscountCode: (discountCode, actor) => {
+          const exists = get().discountCodes.some((entry) => entry.id === discountCode.id)
+          commit((current) => ({
+            discountCodes: exists
+              ? current.discountCodes.map((entry) => (entry.id === discountCode.id ? discountCode : entry))
+              : [...current.discountCodes, discountCode],
+            activityLog: [
+              createActivity('discount_applied', actor, `${exists ? 'Updated' : 'Created'} discount code ${discountCode.code}.`),
+              ...current.activityLog,
+            ],
+          }))
+        },
         upsertModifier: (modifier, actor) => {
           const exists = get().modifiers.some((entry) => entry.id === modifier.id)
           commit((current) => ({
@@ -1148,6 +1266,8 @@ export const usePizzaOpsStore = create<StoreState>()(
         inventory: state.inventory,
         inventoryDefaults: state.inventoryDefaults,
         modifiers: state.modifiers,
+        discountCodes: state.discountCodes,
+        discountCodeRedemptions: state.discountCodeRedemptions,
         customers: state.customers,
         orders: state.orders,
         history: state.history,

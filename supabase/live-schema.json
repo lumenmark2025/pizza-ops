@@ -191,6 +191,9 @@
         {"name": "subtotal_pence", "type": "integer", "default": "0", "nullable": "NO"},
         {"name": "discount_pence", "type": "integer", "default": "0", "nullable": "NO"},
         {"name": "total_pence", "type": "integer", "default": "0", "nullable": "NO"},
+        {"name": "applied_discount_code_id", "type": "uuid", "default": null, "nullable": "YES"},
+        {"name": "applied_discount_summary", "type": "jsonb", "default": null, "nullable": "YES"},
+        {"name": "pricing_summary", "type": "jsonb", "default": null, "nullable": "YES"},
         {"name": "payment_status", "type": "text", "default": "'unpaid'::text", "nullable": "NO"},
         {"name": "payment_method", "type": "text", "default": null, "nullable": "YES"},
         {"name": "payment_reference", "type": "text", "default": null, "nullable": "YES"},
@@ -213,12 +216,72 @@
         {"index_name": "idx_orders_status", "definition": "CREATE INDEX idx_orders_status ON public.orders USING btree (status)"},
         {"index_name": "idx_orders_promised_collection_time", "definition": "CREATE INDEX idx_orders_promised_collection_time ON public.orders USING btree (promised_collection_time)"},
         {"index_name": "idx_orders_source", "definition": "CREATE INDEX idx_orders_source ON public.orders USING btree (source)"},
-        {"index_name": "idx_orders_loyverse_sync_status", "definition": "CREATE INDEX idx_orders_loyverse_sync_status ON public.orders USING btree (loyverse_sync_status)"}
+        {"index_name": "idx_orders_loyverse_sync_status", "definition": "CREATE INDEX idx_orders_loyverse_sync_status ON public.orders USING btree (loyverse_sync_status)"},
+        {"index_name": "idx_orders_applied_discount_code_id", "definition": "CREATE INDEX idx_orders_applied_discount_code_id ON public.orders USING btree (applied_discount_code_id)"}
       ],
       "foreign_keys": [
+        {"column": "applied_discount_code_id", "references_table": "discount_codes", "references_column": "id"},
         {"column": "customer_id", "references_table": "customers", "references_column": "id"},
         {"column": "scheduled_slot_id", "references_table": "service_slots", "references_column": "id"},
         {"column": "service_id", "references_table": "services", "references_column": "id"}
+      ]
+    },
+    {
+      "table_name": "discount_codes",
+      "primary_key": ["id"],
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "nullable": "NO"},
+        {"name": "code", "type": "text", "default": null, "nullable": "NO"},
+        {"name": "is_active", "type": "boolean", "default": "true", "nullable": "NO"},
+        {"name": "discount_type", "type": "text", "default": null, "nullable": "NO"},
+        {"name": "discount_value", "type": "numeric", "default": "0", "nullable": "NO"},
+        {"name": "scope", "type": "text", "default": "'order'::text", "nullable": "NO"},
+        {"name": "usage_mode", "type": "text", "default": "'single_use'::text", "nullable": "NO"},
+        {"name": "max_uses", "type": "integer", "default": null, "nullable": "YES"},
+        {"name": "used_count", "type": "integer", "default": "0", "nullable": "NO"},
+        {"name": "valid_from", "type": "timestamp with time zone", "default": null, "nullable": "YES"},
+        {"name": "valid_until", "type": "timestamp with time zone", "default": null, "nullable": "YES"},
+        {"name": "minimum_order_value", "type": "numeric", "default": null, "nullable": "YES"},
+        {"name": "applies_to_menu_item_id", "type": "uuid", "default": null, "nullable": "YES"},
+        {"name": "applies_to_category_slug", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "notes", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "created_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"},
+        {"name": "updated_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"}
+      ],
+      "indexes": [
+        {"index_name": "discount_codes_pkey", "definition": "CREATE UNIQUE INDEX discount_codes_pkey ON public.discount_codes USING btree (id)"},
+        {"index_name": "discount_codes_code_unique", "definition": "CREATE UNIQUE INDEX discount_codes_code_unique ON public.discount_codes USING btree (lower(code))"},
+        {"index_name": "idx_discount_codes_active", "definition": "CREATE INDEX idx_discount_codes_active ON public.discount_codes USING btree (is_active)"},
+        {"index_name": "idx_discount_codes_code", "definition": "CREATE INDEX idx_discount_codes_code ON public.discount_codes USING btree (lower(code))"}
+      ],
+      "foreign_keys": [
+        {"column": "applies_to_menu_item_id", "references_table": "menu_items", "references_column": "id"}
+      ]
+    },
+    {
+      "table_name": "discount_code_redemptions",
+      "primary_key": ["id"],
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "nullable": "NO"},
+        {"name": "discount_code_id", "type": "uuid", "default": null, "nullable": "NO"},
+        {"name": "order_id", "type": "uuid", "default": null, "nullable": "NO"},
+        {"name": "order_item_id", "type": "uuid", "default": null, "nullable": "YES"},
+        {"name": "redeemed_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"},
+        {"name": "redeemed_by_user_id", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "code_snapshot", "type": "text", "default": null, "nullable": "NO"},
+        {"name": "discount_type_snapshot", "type": "text", "default": null, "nullable": "NO"},
+        {"name": "discount_value_snapshot", "type": "numeric", "default": null, "nullable": "NO"},
+        {"name": "applied_discount_amount", "type": "numeric", "default": "0", "nullable": "NO"}
+      ],
+      "indexes": [
+        {"index_name": "discount_code_redemptions_pkey", "definition": "CREATE UNIQUE INDEX discount_code_redemptions_pkey ON public.discount_code_redemptions USING btree (id)"},
+        {"index_name": "idx_discount_code_redemptions_code_id", "definition": "CREATE INDEX idx_discount_code_redemptions_code_id ON public.discount_code_redemptions USING btree (discount_code_id)"},
+        {"index_name": "idx_discount_code_redemptions_order_id", "definition": "CREATE INDEX idx_discount_code_redemptions_order_id ON public.discount_code_redemptions USING btree (order_id)"}
+      ],
+      "foreign_keys": [
+        {"column": "discount_code_id", "references_table": "discount_codes", "references_column": "id"},
+        {"column": "order_id", "references_table": "orders", "references_column": "id"},
+        {"column": "order_item_id", "references_table": "order_items", "references_column": "id"}
       ]
     },
     {
@@ -252,6 +315,10 @@
         {"name": "quantity", "type": "integer", "default": "1", "nullable": "NO"},
         {"name": "unit_price_pence", "type": "integer", "default": "0", "nullable": "NO"},
         {"name": "line_total_pence", "type": "integer", "default": "0", "nullable": "NO"},
+        {"name": "original_unit_price_pence", "type": "integer", "default": null, "nullable": "YES"},
+        {"name": "item_discount_pence", "type": "integer", "default": "0", "nullable": "NO"},
+        {"name": "final_unit_price_pence", "type": "integer", "default": null, "nullable": "YES"},
+        {"name": "applied_discount_summary", "type": "jsonb", "default": null, "nullable": "YES"},
         {"name": "status", "type": "text", "default": "'taken'::text", "nullable": "NO"},
         {"name": "notes", "type": "text", "default": null, "nullable": "YES"},
         {"name": "created_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"},
