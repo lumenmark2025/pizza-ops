@@ -38,6 +38,15 @@ function emptyDraft(): MenuItem {
   })
 }
 
+function createMenuItemId() {
+  const uniquePart =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().replace(/-/g, '_')
+      : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+
+  return `menu_${uniquePart}`
+}
+
 function MenuImagePreview({ imageUrl, name }: { imageUrl?: string | null; name: string }) {
   const resolvedImageUrl = getMenuItemImageUrl({ imageUrl })
 
@@ -131,8 +140,7 @@ export function MenuAdminPage() {
       return
     }
 
-    const id =
-      menuItemDraft.id || `menu_${menuItemDraft.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`
+    const id = menuItemDraft.id || createMenuItemId()
 
     const saved = normalizeMenuItem({
       ...menuItemDraft,
@@ -309,7 +317,7 @@ export function MenuAdminPage() {
           <div className="mt-5 grid gap-4">
             <label className="grid gap-2 text-sm">
               <span className="font-semibold text-slate-600">Item name</span>
-              <Input value={menuItemDraft.name} onChange={(event) => setMenuItemDraft((current) => normalizeMenuItem({ ...current, id: current.id || `menu_${event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`, name: event.target.value }))} />
+              <Input value={menuItemDraft.name} onChange={(event) => setMenuItemDraft((current) => normalizeMenuItem({ ...current, name: event.target.value }))} />
             </label>
             <label className="grid gap-2 text-sm">
               <span className="font-semibold text-slate-600">Description</span>
