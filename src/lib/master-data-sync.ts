@@ -9,7 +9,7 @@ import type {
   ServiceSnapshot,
 } from '../types/domain'
 import { normalizeMenuItem, resolveMenuCategorySlug } from './menu'
-import { supabase } from './supabase'
+import { supabase, supabaseUrl } from './supabase'
 
 type IngredientRow = {
   id: string
@@ -49,6 +49,34 @@ type MasterDataPatch = Pick<
 
 function isMissingIngredientThresholdColumn(error: { code?: string; message?: string } | null | undefined) {
   return error?.code === 'PGRST204' && error.message?.includes('low_stock_threshold')
+}
+
+function formatPersistError(
+  step: string,
+  error: { code?: string; message?: string; details?: string | null; hint?: string | null } | null | undefined,
+) {
+  const segments = [
+    `Menu persistence failed at ${step}.`,
+    error?.message ?? 'Unknown Supabase error.',
+  ]
+
+  if (error?.code) {
+    segments.push(`code=${error.code}`)
+  }
+
+  if (error?.details) {
+    segments.push(`details=${error.details}`)
+  }
+
+  if (error?.hint) {
+    segments.push(`hint=${error.hint}`)
+  }
+
+  if (supabaseUrl) {
+    segments.push(`target=${supabaseUrl}`)
+  }
+
+  return segments.join(' ')
 }
 
 async function selectIngredientRows() {
@@ -159,6 +187,12 @@ export async function persistMenuItemToSupabase(menuItem: MenuItem): Promise<Men
     is_pizza: !['dips', 'drinks'].includes(resolveMenuCategorySlug(normalized.categorySlug, normalized.category)),
   }
 
+  console.info('[menu-save] menu_items upsert start', {
+    target: supabaseUrl,
+    id: normalized.id,
+    name: normalized.name,
+  })
+
   const { data, error } = await supabase
     .from('menu_items')
     .upsert(payload)
@@ -168,8 +202,19 @@ export async function persistMenuItemToSupabase(menuItem: MenuItem): Promise<Men
     .single()
 
   if (error || !data) {
-    throw new Error(error.message)
+    console.error('[menu-save] menu_items upsert failed', {
+      target: supabaseUrl,
+      payload,
+      error,
+    })
+    throw new Error(formatPersistError('menu_items upsert', error))
   }
+
+  console.info('[menu-save] menu_items upsert success', {
+    target: supabaseUrl,
+    id: data.id,
+    name: data.name,
+  })
 
   return mapMenuItemRow(data as MenuItemRow)
 }
@@ -182,13 +227,24 @@ export async function persistMenuItemRecipesToSupabase(
     throw new Error('Supabase client is not configured for recipe writes.')
   }
 
+  console.info('[menu-save] menu_item_recipes replace start', {
+    target: supabaseUrl,
+    menuItemId,
+    recipeCount: recipeRows.length,
+  })
+
   const { error: deleteError } = await supabase
     .from('menu_item_recipes')
     .delete()
     .eq('menu_item_id', menuItemId)
 
   if (deleteError) {
-    throw new Error(deleteError.message)
+    console.error('[menu-save] menu_item_recipes delete failed', {
+      target: supabaseUrl,
+      menuItemId,
+      error: deleteError,
+    })
+    throw new Error(formatPersistError('menu_item_recipes delete', deleteError))
   }
 
   const payload = recipeRows
@@ -203,7 +259,13 @@ export async function persistMenuItemRecipesToSupabase(
   if (payload.length) {
     const { error: insertError } = await supabase.from('menu_item_recipes').insert(payload)
     if (insertError) {
-      throw new Error(insertError.message)
+      console.error('[menu-save] menu_item_recipes insert failed', {
+        target: supabaseUrl,
+        menuItemId,
+        payload,
+        error: insertError,
+      })
+      throw new Error(formatPersistError('menu_item_recipes insert', insertError))
     }
   }
 
@@ -213,8 +275,19 @@ export async function persistMenuItemRecipesToSupabase(
     .eq('menu_item_id', menuItemId)
 
   if (error) {
-    throw new Error(error.message)
+    console.error('[menu-save] menu_item_recipes reload failed', {
+      target: supabaseUrl,
+      menuItemId,
+      error,
+    })
+    throw new Error(formatPersistError('menu_item_recipes reload', error))
   }
+
+  console.info('[menu-save] menu_item_recipes replace success', {
+    target: supabaseUrl,
+    menuItemId,
+    recipeCount: (data ?? []).length,
+  })
 
   return ((data ?? []) as RecipeRow[]).map((row) => ({
     id: row.id,

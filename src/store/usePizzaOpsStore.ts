@@ -1402,6 +1402,11 @@ export const usePizzaOpsStore = create<StoreState>()(
         },
         upsertMenuItem: async (menuItem, recipeRows, actor) => {
           const normalizedMenuItem = normalizeMenuItem(menuItem)
+          console.info('[menu-save] store upsertMenuItem start', {
+            id: normalizedMenuItem.id,
+            name: normalizedMenuItem.name,
+            recipeCount: recipeRows.length,
+          })
           const persistedMenuItem = await persistMenuItemToSupabase(normalizedMenuItem)
           const canonicalMenuItem = persistedMenuItem ?? normalizedMenuItem
           const persistedRecipeRows = await persistMenuItemRecipesToSupabase(
@@ -1467,6 +1472,12 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+          console.info('[menu-save] store upsertMenuItem success', {
+            id: canonicalMenuItem.id,
+            name: canonicalMenuItem.name,
+            recipeCount: canonicalRecipeRows.length,
+            existed: exists,
+          })
         },
         upsertDiscountCode: (discountCode, actor) => {
           const exists = get().discountCodes.some((entry) => entry.id === discountCode.id)

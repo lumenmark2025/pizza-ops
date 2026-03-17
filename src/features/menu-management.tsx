@@ -14,6 +14,7 @@ import {
   normalizeMenuItem,
   sortMenuItems,
 } from '../lib/menu'
+import { supabaseUrl } from '../lib/supabase'
 import { currency } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { MenuItem, MenuItemRecipe } from '../types/domain'
@@ -101,6 +102,7 @@ export function MenuAdminPage() {
   const [editingMenuItemId, setEditingMenuItemId] = useState<string | null>(sortedMenuItems[0]?.id ?? null)
   const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>(sortedMenuItems[0] ?? emptyDraft())
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveStatus, setSaveStatus] = useState<string>('Idle')
   const nextRecipeClientId = useRef(0)
   const getNextRecipeClientId = () => {
     nextRecipeClientId.current += 1
@@ -124,6 +126,7 @@ export function MenuAdminPage() {
     setMenuItemDraft(emptyDraft())
     setMenuRecipeDraft([])
     setSaveError(null)
+    setSaveStatus('Idle')
   }
 
   function loadMenuItem(item: MenuItem | null, sourceRecipes = recipes) {
@@ -137,6 +140,7 @@ export function MenuAdminPage() {
     setMenuItemDraft(normalizedItem)
     setMenuRecipeDraft(buildRecipeDraft(sourceRecipes, normalizedItem.id, getNextRecipeClientId))
     setSaveError(null)
+    setSaveStatus('Idle')
   }
 
   async function saveMenuItem() {
@@ -164,15 +168,23 @@ export function MenuAdminPage() {
 
     try {
       setSaveError(null)
+      setSaveStatus(
+        `Saving ${saved.name} (${editingMenuItemId ? 'update' : 'create'}) to menu_items on ${supabaseUrl ?? 'no Supabase target configured'}`,
+      )
       await upsertMenuItem(
         saved,
         savedRecipeRows,
         'manager',
       )
 
+      setSaveStatus(
+        `Saved ${saved.name} to menu_items and ${savedRecipeRows.length} recipe row(s) on ${supabaseUrl ?? 'no Supabase target configured'}`,
+      )
       loadMenuItem(saved, savedRecipeRows)
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Menu item save failed.')
+      const message = error instanceof Error ? error.message : 'Menu item save failed.'
+      setSaveError(message)
+      setSaveStatus(`Save failed for ${saved.name}.`)
     }
   }
 
@@ -405,6 +417,24 @@ export function MenuAdminPage() {
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <span>Spice preview</span>
               <ChilliRating rating={menuItemDraft.chilliRating ?? 0} showNoneLabel />
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+              <p>
+                <span className="font-semibold text-slate-700">Save target:</span>{' '}
+                {supabaseUrl ?? 'Supabase not configured'}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Mode:</span>{' '}
+                {editingMenuItemId ? 'Edit existing pizza' : 'Create new pizza'}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Current item id:</span>{' '}
+                {editingMenuItemId || '(new item)'}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Last save status:</span>{' '}
+                {saveStatus}
+              </p>
             </div>
             {saveError ? <p className="text-sm font-medium text-rose-600">{saveError}</p> : null}
           </div>
