@@ -6,49 +6,99 @@ import { Input } from '../components/ui/input'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { Ingredient } from '../types/domain'
 
-export function IngredientsAdminPage() {
-  const ingredients = usePizzaOpsStore((state) => state.ingredients)
-  const recipes = usePizzaOpsStore((state) => state.recipes)
-  const upsertIngredient = usePizzaOpsStore((state) => state.upsertIngredient)
-  const [ingredientDraft, setIngredientDraft] = useState<Ingredient>({
+function emptyIngredient(): Ingredient {
+  return {
     id: '',
     name: '',
     unit: 'g',
     lowStockThreshold: 0,
     active: true,
-  })
+  }
+}
+
+function buildIngredientId(name: string, ingredients: Ingredient[], editingIngredientId: string | null) {
+  const baseId = `ing_${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`.replace(/_+$/g, '')
+  if (!baseId) {
+    return ''
+  }
+
+  let nextId = baseId
+  let suffix = 2
+  while (
+    ingredients.some(
+      (ingredient) => ingredient.id === nextId && ingredient.id !== editingIngredientId,
+    )
+  ) {
+    nextId = `${baseId}_${suffix}`
+    suffix += 1
+  }
+
+  return nextId
+}
+
+export function IngredientsAdminPage() {
+  const ingredients = usePizzaOpsStore((state) => state.ingredients)
+  const recipes = usePizzaOpsStore((state) => state.recipes)
+  const inventoryDefaults = usePizzaOpsStore((state) => state.inventoryDefaults)
+  const upsertIngredient = usePizzaOpsStore((state) => state.upsertIngredient)
+  const [ingredientDraft, setIngredientDraft] = useState<Ingredient>(emptyIngredient())
   const [ingredientDefaultQuantity, setIngredientDefaultQuantity] = useState(0)
+  const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null)
+
+  function resetIngredientForm() {
+    setIngredientDraft(emptyIngredient())
+    setIngredientDefaultQuantity(0)
+    setEditingIngredientId(null)
+  }
+
+  function editIngredient(ingredient: Ingredient) {
+    setIngredientDraft(ingredient)
+    setIngredientDefaultQuantity(
+      inventoryDefaults.find((entry) => entry.ingredientId === ingredient.id)?.quantity ?? 0,
+    )
+    setEditingIngredientId(ingredient.id)
+  }
 
   function saveIngredient() {
     if (!ingredientDraft.name.trim()) {
       return
     }
 
+    const nextId = editingIngredientId || buildIngredientId(ingredientDraft.name.trim(), ingredients, null)
+    if (!nextId) {
+      return
+    }
+
     const next = {
       ...ingredientDraft,
-      id: ingredientDraft.id || `ing_${ingredientDraft.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
+      id: nextId,
     }
 
     upsertIngredient(next, ingredientDefaultQuantity, 'manager')
-    setIngredientDraft({
-      id: '',
-      name: '',
-      unit: 'g',
-      lowStockThreshold: 0,
-      active: true,
-    })
-    setIngredientDefaultQuantity(0)
+    resetIngredientForm()
   }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
       <Card className="p-5 sm:p-6">
-        <h2 className="font-display text-3xl font-bold">Ingredient admin</h2>
-        <p className="mt-2 text-sm text-slate-500">Create stock items used by pizzas and define their default service load.</p>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-3xl font-bold">Ingredient admin</h2>
+            <p className="mt-2 text-sm text-slate-500">Create stock items used by pizzas and define their default service load.</p>
+          </div>
+          <Button variant="outline" onClick={resetIngredientForm}>
+            New ingredient
+          </Button>
+        </div>
         <div className="mt-6 grid gap-3">
+          <div className="flex items-center gap-2">
+            <Badge variant={editingIngredientId ? 'blue' : 'slate'}>
+              {editingIngredientId ? 'Editing ingredient' : 'New ingredient'}
+            </Badge>
+          </div>
           <label className="grid gap-1.5 text-sm font-medium text-slate-700">
             Ingredient name
-            <Input value={ingredientDraft.name} onChange={(event) => setIngredientDraft((current) => ({ ...current, id: current.id || `ing_${event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`, name: event.target.value }))} />
+            <Input value={ingredientDraft.name} onChange={(event) => setIngredientDraft((current) => ({ ...current, name: event.target.value }))} />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-medium text-slate-700">
@@ -73,7 +123,14 @@ export function IngredientsAdminPage() {
               </select>
             </label>
           </div>
-          <Button onClick={saveIngredient}>Save ingredient</Button>
+          <div className="flex gap-2">
+            <Button onClick={saveIngredient}>
+              {editingIngredientId ? 'Update ingredient' : 'Save ingredient'}
+            </Button>
+            <Button variant="outline" onClick={resetIngredientForm}>
+              Clear form
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -94,7 +151,7 @@ export function IngredientsAdminPage() {
                   {ingredient.active === false ? 'Inactive' : 'Active'}
                 </Badge>
                 <Badge variant="slate">{recipes.filter((entry) => entry.ingredientId === ingredient.id).length} recipes</Badge>
-                <Button size="sm" variant="outline" onClick={() => setIngredientDraft(ingredient)}>
+                <Button size="sm" variant="outline" onClick={() => editIngredient(ingredient)}>
                   Edit
                 </Button>
               </div>
