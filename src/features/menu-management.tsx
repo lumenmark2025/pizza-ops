@@ -64,6 +64,16 @@ function createRecipeRow(menuItemId = '', ingredientId = ''): MenuItemRecipe {
   }
 }
 
+function buildRecipeDraft(recipes: MenuItemRecipe[], menuItemId?: string) {
+  return recipes
+    .filter((entry) => entry.menuItemId === menuItemId)
+    .map((entry) => ({
+      ...entry,
+      id: entry.id || createRecipeRow(entry.menuItemId, entry.ingredientId).id,
+      affectsAvailability: entry.affectsAvailability !== false,
+    }))
+}
+
 export function MenuAdminPage() {
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const ingredients = usePizzaOpsStore((state) => state.ingredients)
@@ -73,13 +83,7 @@ export function MenuAdminPage() {
   const [selectedMenuItemId, setSelectedMenuItemId] = useState(sortedMenuItems[0]?.id ?? '')
   const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>(sortedMenuItems[0] ?? emptyDraft())
   const [menuRecipeDraft, setMenuRecipeDraft] = useState<MenuItemRecipe[]>(
-    recipes
-      .filter((entry) => entry.menuItemId === sortedMenuItems[0]?.id)
-      .map((entry) => ({
-        ...entry,
-        id: entry.id || createRecipeRow(entry.menuItemId, entry.ingredientId).id,
-        affectsAvailability: entry.affectsAvailability !== false,
-      })),
+    buildRecipeDraft(recipes, sortedMenuItems[0]?.id),
   )
 
   const recipeSummary = useMemo(
@@ -91,7 +95,7 @@ export function MenuAdminPage() {
     [ingredients, recipes],
   )
 
-  function loadMenuItem(item: MenuItem | null) {
+  function loadMenuItem(item: MenuItem | null, sourceRecipes = recipes) {
     if (!item) {
       setSelectedMenuItemId('')
       setMenuItemDraft(emptyDraft())
@@ -102,15 +106,7 @@ export function MenuAdminPage() {
     const normalizedItem = normalizeMenuItem(item)
     setSelectedMenuItemId(normalizedItem.id)
     setMenuItemDraft(normalizedItem)
-    setMenuRecipeDraft(
-      recipes
-        .filter((entry) => entry.menuItemId === normalizedItem.id)
-        .map((entry) => ({
-          ...entry,
-          id: entry.id || createRecipeRow(entry.menuItemId, entry.ingredientId).id,
-          affectsAvailability: entry.affectsAvailability !== false,
-        })),
-    )
+    setMenuRecipeDraft(buildRecipeDraft(sourceRecipes, normalizedItem.id))
   }
 
   function saveMenuItem() {
@@ -128,20 +124,22 @@ export function MenuAdminPage() {
       loyverseItemId: menuItemDraft.loyverseItemId || `LOY-${id.toUpperCase()}`,
     })
 
+    const savedRecipeRows = menuRecipeDraft
+      .filter((entry) => entry.ingredientId && Number(entry.quantity) > 0)
+      .map((entry) => ({
+        ...entry,
+        menuItemId: id,
+        quantity: Number(entry.quantity),
+        affectsAvailability: entry.affectsAvailability !== false,
+      }))
+
     upsertMenuItem(
       saved,
-      menuRecipeDraft
-        .filter((entry) => entry.ingredientId && Number(entry.quantity) > 0)
-        .map((entry) => ({
-          ...entry,
-          menuItemId: id,
-          quantity: Number(entry.quantity),
-          affectsAvailability: entry.affectsAvailability !== false,
-        })),
+      savedRecipeRows,
       'manager',
     )
 
-    loadMenuItem(saved)
+    loadMenuItem(saved, savedRecipeRows)
   }
 
   function toggleMenuVisibility(item: MenuItem) {
