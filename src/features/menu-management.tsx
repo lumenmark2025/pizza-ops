@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Image as ImageIcon } from 'lucide-react'
 import { ChilliRating } from '../components/chilli-rating'
 import { Badge } from '../components/ui/badge'
@@ -17,6 +17,10 @@ import {
 import { currency } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { MenuItem, MenuItemRecipe } from '../types/domain'
+
+type RecipeDraftRow = MenuItemRecipe & {
+  clientId: string
+}
 
 function emptyDraft(): MenuItem {
   return normalizeMenuItem({
@@ -51,8 +55,9 @@ function MenuImagePreview({ imageUrl, name }: { imageUrl?: string | null; name: 
   )
 }
 
-function createRecipeRow(menuItemId = '', ingredientId = ''): MenuItemRecipe {
+function createRecipeRow(clientId: string, menuItemId = '', ingredientId = ''): RecipeDraftRow {
   return {
+    clientId,
     id:
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -64,12 +69,19 @@ function createRecipeRow(menuItemId = '', ingredientId = ''): MenuItemRecipe {
   }
 }
 
-function buildRecipeDraft(recipes: MenuItemRecipe[], menuItemId?: string) {
+function buildRecipeDraft(
+  recipes: MenuItemRecipe[],
+  menuItemId: string | undefined,
+  getNextClientId: () => string,
+) {
   return recipes
     .filter((entry) => entry.menuItemId === menuItemId)
     .map((entry) => ({
+      clientId: getNextClientId(),
       ...entry,
-      id: entry.id || createRecipeRow(entry.menuItemId, entry.ingredientId).id,
+      id:
+        entry.id ||
+        createRecipeRow(getNextClientId(), entry.menuItemId, entry.ingredientId).id,
       affectsAvailability: entry.affectsAvailability !== false,
     }))
 }
@@ -82,8 +94,13 @@ export function MenuAdminPage() {
   const sortedMenuItems = useMemo(() => sortMenuItems(menuItems.map(normalizeMenuItem)), [menuItems])
   const [selectedMenuItemId, setSelectedMenuItemId] = useState(sortedMenuItems[0]?.id ?? '')
   const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>(sortedMenuItems[0] ?? emptyDraft())
-  const [menuRecipeDraft, setMenuRecipeDraft] = useState<MenuItemRecipe[]>(
-    buildRecipeDraft(recipes, sortedMenuItems[0]?.id),
+  const nextRecipeClientId = useRef(0)
+  const getNextRecipeClientId = () => {
+    nextRecipeClientId.current += 1
+    return `recipe_draft_${nextRecipeClientId.current}`
+  }
+  const [menuRecipeDraft, setMenuRecipeDraft] = useState<RecipeDraftRow[]>(
+    buildRecipeDraft(recipes, sortedMenuItems[0]?.id, getNextRecipeClientId),
   )
 
   const recipeSummary = useMemo(
@@ -106,7 +123,7 @@ export function MenuAdminPage() {
     const normalizedItem = normalizeMenuItem(item)
     setSelectedMenuItemId(normalizedItem.id)
     setMenuItemDraft(normalizedItem)
-    setMenuRecipeDraft(buildRecipeDraft(sourceRecipes, normalizedItem.id))
+    setMenuRecipeDraft(buildRecipeDraft(sourceRecipes, normalizedItem.id, getNextRecipeClientId))
   }
 
   function saveMenuItem() {
@@ -126,7 +143,7 @@ export function MenuAdminPage() {
 
     const savedRecipeRows = menuRecipeDraft
       .filter((entry) => entry.ingredientId && Number(entry.quantity) > 0)
-      .map((entry) => ({
+      .map(({ clientId: _clientId, ...entry }) => ({
         ...entry,
         menuItemId: id,
         quantity: Number(entry.quantity),
@@ -166,13 +183,16 @@ export function MenuAdminPage() {
   }
 
   function addRecipeRow() {
-    setMenuRecipeDraft((current) => [...current, createRecipeRow(menuItemDraft.id)])
+    setMenuRecipeDraft((current) => [
+      ...current,
+      createRecipeRow(getNextRecipeClientId(), menuItemDraft.id),
+    ])
   }
 
-  function updateRecipeRow(recipeId: string, updates: Partial<MenuItemRecipe>) {
+  function updateRecipeRow(clientId: string, updates: Partial<MenuItemRecipe>) {
     setMenuRecipeDraft((current) =>
       current.map((entry) =>
-        entry.id === recipeId
+        entry.clientId === clientId
           ? {
               ...entry,
               ...updates,
@@ -182,8 +202,8 @@ export function MenuAdminPage() {
     )
   }
 
-  function removeRecipeRow(recipeId: string) {
-    setMenuRecipeDraft((current) => current.filter((entry) => entry.id !== recipeId))
+  function removeRecipeRow(clientId: string) {
+    setMenuRecipeDraft((current) => current.filter((entry) => entry.clientId !== clientId))
   }
 
   return (
@@ -381,13 +401,13 @@ export function MenuAdminPage() {
               menuRecipeDraft.map((recipeRow) => {
                 const selectedIngredientIds = new Set(
                   menuRecipeDraft
-                    .filter((entry) => entry.id !== recipeRow.id && entry.ingredientId)
+                    .filter((entry) => entry.clientId !== recipeRow.clientId && entry.ingredientId)
                     .map((entry) => entry.ingredientId),
                 )
 
                 return (
                   <div
-                    key={recipeRow.id}
+                    key={recipeRow.clientId}
                     className="grid gap-4 rounded-2xl border border-slate-200 p-4"
                   >
                     <div className="grid gap-4 sm:grid-cols-[1.3fr_120px_auto] sm:items-end">
@@ -397,7 +417,7 @@ export function MenuAdminPage() {
                           className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-slate-950"
                           value={recipeRow.ingredientId}
                           onChange={(event) =>
-                            updateRecipeRow(recipeRow.id, { ingredientId: event.target.value })
+                            updateRecipeRow(recipeRow.clientId, { ingredientId: event.target.value })
                           }
                         >
                           <option value="">Select an ingredient</option>
@@ -423,13 +443,13 @@ export function MenuAdminPage() {
                           step="0.01"
                           value={recipeRow.quantity}
                           onChange={(event) =>
-                            updateRecipeRow(recipeRow.id, {
+                            updateRecipeRow(recipeRow.clientId, {
                               quantity: Number(event.target.value),
                             })
                           }
                         />
                       </label>
-                      <Button variant="outline" onClick={() => removeRecipeRow(recipeRow.id)}>
+                      <Button variant="outline" onClick={() => removeRecipeRow(recipeRow.clientId)}>
                         Remove
                       </Button>
                     </div>
@@ -439,7 +459,7 @@ export function MenuAdminPage() {
                         type="checkbox"
                         checked={recipeRow.affectsAvailability !== false}
                         onChange={(event) =>
-                          updateRecipeRow(recipeRow.id, {
+                          updateRecipeRow(recipeRow.clientId, {
                             affectsAvailability: event.target.checked,
                           })
                         }
