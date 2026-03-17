@@ -29,7 +29,7 @@ import {
 import { getOrderItemsTotal } from '../lib/order-calculations'
 import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
-import { cn, currency } from '../lib/utils'
+import { cn, currency, isValidEmail } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { AppliedDiscountSummary, DiscountCode, MenuItem, OrderItem, PaymentStatus, PricingSummary } from '../types/domain'
 
@@ -40,6 +40,7 @@ type PublicDraft = {
   basket: OrderItem[]
   customerName: string
   mobile: string
+  email: string
   notes: string
   discountCode: string
   appliedOrderDiscount: AppliedDiscountSummary | null
@@ -63,6 +64,7 @@ const EMPTY_DRAFT: PublicDraft = {
   basket: [],
   customerName: '',
   mobile: '',
+  email: '',
   notes: '',
   discountCode: '',
   appliedOrderDiscount: null,
@@ -1156,6 +1158,16 @@ export function CustomerCheckoutPage() {
       return
     }
 
+    if (!draft.email.trim()) {
+      setMessage('Please enter your email for your receipt.')
+      return
+    }
+
+    if (!isValidEmail(draft.email)) {
+      setMessage('Please enter a valid email address.')
+      return
+    }
+
     if (!draft.selectedTime) {
       setMessage('Please choose a collection time.')
       return
@@ -1193,6 +1205,7 @@ export function CustomerCheckoutPage() {
     const result = createOrder({
       customerName: draft.customerName,
       mobile: draft.mobile,
+      email: draft.email,
       source: 'web',
       promisedTime: draft.selectedTime,
       items: draft.basket,
@@ -1304,6 +1317,7 @@ export function CustomerCheckoutPage() {
           <div className="mt-5 grid gap-3">
             <Input placeholder="Your name" value={draft.customerName} onChange={(event) => patchDraft({ customerName: event.target.value })} />
             <Input placeholder="Mobile number (optional)" value={draft.mobile} onChange={(event) => patchDraft({ mobile: event.target.value })} />
+            <Input placeholder="Email for your receipt" type="email" value={draft.email} onChange={(event) => patchDraft({ email: event.target.value })} />
             <Textarea placeholder="Notes for the team" value={draft.notes} onChange={(event) => patchDraft({ notes: event.target.value })} />
           </div>
           <div className="mt-5">

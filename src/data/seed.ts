@@ -325,9 +325,9 @@ export const seedSnapshot: ServiceSnapshot = {
   ],
   discountCodeRedemptions: [],
   customers: [
-    { id: 'cust_1', name: 'Mia' },
-    { id: 'cust_2', name: 'Hassan', mobile: '07700900123' },
-    { id: 'cust_3', name: 'The Park Family' },
+    { id: 'cust_1', name: 'Mia', email: 'mia@example.com', authUserId: null },
+    { id: 'cust_2', name: 'Hassan', mobile: '07700900123', email: 'hassan@example.com', authUserId: null },
+    { id: 'cust_3', name: 'The Park Family', email: 'parkfamily@example.com', authUserId: null },
   ],
   orders: [],
   history: [],

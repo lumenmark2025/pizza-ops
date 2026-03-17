@@ -19,7 +19,7 @@ import {
 import { getMenuCategoryLabel, isPizzaMenuItem, sortMenuItems } from '../lib/menu'
 import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
-import { cn, currency, titleCase } from '../lib/utils'
+import { cn, currency, isValidEmail, normalizeEmail, titleCase } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { AppliedDiscountSummary, DiscountCode, Modifier, OrderItem, OrderSource, PaymentMethod } from '../types/domain'
 
@@ -47,6 +47,7 @@ export function OrderEntryPage() {
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const discountCodes = usePizzaOpsStore((state) => state.discountCodes)
   const modifiers = usePizzaOpsStore((state) => state.modifiers)
+  const customers = usePizzaOpsStore((state) => state.customers)
   const orders = usePizzaOpsStore((state) => state.orders)
   const recipes = usePizzaOpsStore((state) => state.recipes)
   const inventory = usePizzaOpsStore((state) => state.inventory)
@@ -56,6 +57,7 @@ export function OrderEntryPage() {
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
   const [customerName, setCustomerName] = useState('')
   const [mobile, setMobile] = useState('')
+  const [email, setEmail] = useState('')
   const [source, setSource] = useState<OrderSource>('walkup')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('sumup_online')
   const [notes, setNotes] = useState('')
@@ -84,6 +86,18 @@ export function OrderEntryPage() {
         .map((entry) => entry.pagerNumber as number),
     [orders],
   )
+  const emailSuggestions = useMemo(() => {
+    const query = normalizeEmail(email)
+    if (!query) {
+      return []
+    }
+
+    return customers
+      .filter((entry) => entry.email && normalizeEmail(entry.email).includes(query))
+      .slice()
+      .sort((left, right) => normalizeEmail(left.email ?? '').localeCompare(normalizeEmail(right.email ?? '')))
+      .slice(0, 6)
+  }, [customers, email])
 
   const resolvedOrderDiscount = useMemo(() => {
     if (!orderDiscountDraft) {
@@ -277,6 +291,10 @@ export function OrderEntryPage() {
       setMessage('Customer name is required.')
       return
     }
+    if (email.trim() && !isValidEmail(email)) {
+      setMessage('Enter a valid email address or leave it blank.')
+      return
+    }
     if (!basket.length || !selectedTime) {
       setMessage('Basket and collection slot are required.')
       return
@@ -288,6 +306,7 @@ export function OrderEntryPage() {
     const result = createOrder({
       customerName,
       mobile,
+      email,
       source,
       promisedTime: selectedTime,
       items: basket,
@@ -330,6 +349,7 @@ export function OrderEntryPage() {
     setBasket([])
     setCustomerName('')
     setMobile('')
+    setEmail('')
     setNotes('')
     setPagerNumber('')
     setOrderDiscountDraft(null)
@@ -407,6 +427,27 @@ export function OrderEntryPage() {
         <div className="mt-4 grid gap-3">
           <Input placeholder="Customer name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
           <Input placeholder="Mobile (optional)" value={mobile} onChange={(event) => setMobile(event.target.value)} />
+          <div className="relative">
+            <Input placeholder="Email (optional)" value={email} onChange={(event) => setEmail(event.target.value)} />
+            {emailSuggestions.length ? (
+              <div className="absolute z-20 mt-2 w-full rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                {emailSuggestions.map((customer) => (
+                  <button
+                    key={customer.id}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    onClick={() => {
+                      setEmail(customer.email ?? '')
+                      setCustomerName(customer.name)
+                      setMobile(customer.mobile ?? '')
+                    }}
+                  >
+                    <span className="font-medium text-slate-900">{customer.email}</span>
+                    <span className="text-slate-500">{customer.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={source} onChange={(event) => setSource(event.target.value as OrderSource)}>
               {orderSources.map((option) => <option key={option} value={option}>{titleCase(option)}</option>)}
@@ -522,7 +563,7 @@ export function OrderEntryPage() {
                 onClick={() => setSelectedTime(slot.promisedTime)}
               >
                 <p className="font-semibold">{formatTime(slot.promisedTime)}</p>
-                <p className="text-xs text-slate-300">Internal load across {slot.allocations.length} slot{slot.allocations.length > 1 ? 's' : ''}</p>
+                <p className="text-xs text-slate-300">using {slot.allocations.length} slot{slot.allocations.length > 1 ? 's' : ''}</p>
               </button>
             ))}
           </div>

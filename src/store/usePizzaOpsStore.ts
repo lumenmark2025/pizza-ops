@@ -20,6 +20,7 @@ import {
 } from '../lib/realtime-state'
 import { supabase } from '../lib/supabase'
 import { addMinutes, combineDateAndTime, formatTime, toIsoNow } from '../lib/time'
+import { normalizeEmail } from '../lib/utils'
 import type {
   ActivityLogEntry,
   AppliedDiscountSummary,
@@ -47,6 +48,8 @@ import type {
 type CreateOrderInput = {
   customerName: string
   mobile?: string
+  email?: string
+  authUserId?: string | null
   source: OrderSource
   promisedTime: string
   items: OrderItem[]
@@ -190,6 +193,9 @@ function createDemoState(): ServiceSnapshot {
       id: 'order_1',
       reference: 'PZ-101',
       customerId: 'cust_1',
+      customerName: 'Mia',
+      customerEmail: 'mia@example.com',
+      authUserId: null,
       source: 'walkup',
       status: 'taken',
       promisedTime: addMinutes(serviceStart, 25),
@@ -199,6 +205,9 @@ function createDemoState(): ServiceSnapshot {
       totalAmount: 24.5,
       paymentStatus: 'paid',
       paymentMethod: 'cash',
+      receiptEmailStatus: 'sent',
+      receiptSentAt: addMinutes(serviceStart, -4),
+      receiptLastError: null,
       loyaltySyncStatus: 'pending',
       createdAt: addMinutes(serviceStart, -5),
       timestamps: {
@@ -223,6 +232,10 @@ function createDemoState(): ServiceSnapshot {
       id: 'order_2',
       reference: 'PZ-102',
       customerId: 'cust_2',
+      customerName: 'Hassan',
+      customerMobile: '07700900123',
+      customerEmail: 'hassan@example.com',
+      authUserId: null,
       source: 'web',
       status: 'prepping',
       promisedTime: addMinutes(serviceStart, 35),
@@ -232,6 +245,9 @@ function createDemoState(): ServiceSnapshot {
       totalAmount: 27,
       paymentStatus: 'authorized',
       paymentMethod: 'sumup_online',
+      receiptEmailStatus: 'pending',
+      receiptSentAt: null,
+      receiptLastError: null,
       loyaltySyncStatus: 'synced',
       createdAt: addMinutes(serviceStart, -10),
       timestamps: {
@@ -257,6 +273,9 @@ function createDemoState(): ServiceSnapshot {
       id: 'order_3',
       reference: 'PZ-103',
       customerId: 'cust_3',
+      customerName: 'The Park Family',
+      customerEmail: 'parkfamily@example.com',
+      authUserId: null,
       source: 'phone',
       status: 'ready',
       promisedTime: addMinutes(serviceStart, 20),
@@ -266,6 +285,9 @@ function createDemoState(): ServiceSnapshot {
       totalAmount: 13.5,
       paymentStatus: 'paid',
       paymentMethod: 'terminal',
+      receiptEmailStatus: 'sent',
+      receiptSentAt: addMinutes(serviceStart, -16),
+      receiptLastError: null,
       loyaltySyncStatus: 'failed',
       createdAt: addMinutes(serviceStart, -18),
       timestamps: {
@@ -370,12 +392,19 @@ async function mirrorOrderToSupabase(order: Order) {
   await supabase.from('orders').upsert({
     id: order.id,
     customer_id: order.customerId,
+    customer_name: order.customerName,
+    customer_mobile: order.customerMobile,
+    customer_email: order.customerEmail,
+    auth_user_id: order.authUserId,
     reference: order.reference,
     status: order.status,
     promised_time: order.promisedTime,
     total_amount: order.totalAmount,
     payment_status: order.paymentStatus,
     pager_number: order.pagerNumber,
+    receipt_email_status: order.receiptEmailStatus,
+    receipt_sent_at: order.receiptSentAt,
+    receipt_last_error: order.receiptLastError,
   })
 }
 
@@ -412,6 +441,123 @@ export const usePizzaOpsStore = create<StoreState>()(
         const nextState = get()
         if (options?.sync !== false) {
           queueSnapshotSync(getPersistableSnapshot(nextState))
+        }
+      }
+
+      const sendOrderReceipt = async (orderId: string) => {
+        const state = get()
+        const order = state.orders.find((entry) => entry.id === orderId)
+        if (!order?.customerEmail) {
+          return
+        }
+
+        if (
+          order.receiptEmailStatus === 'sending' ||
+          order.receiptEmailStatus === 'sent'
+        ) {
+          return
+        }
+
+        const service = state.services.find((entry) => entry.id === state.service.id) ?? state.service
+        const location = state.locations.find((entry) => entry.id === service.locationId)
+
+        commit((current) => ({
+          orders: current.orders.map((entry) =>
+            entry.id === orderId
+              ? { ...entry, receiptEmailStatus: 'sending', receiptLastError: null }
+              : entry,
+          ),
+        }))
+
+        try {
+          const response = await fetch('/api/send-order-receipt', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              order: {
+                id: order.id,
+                reference: order.reference,
+                customerName: order.customerName ?? '',
+                customerEmail: order.customerEmail,
+                promisedTime: order.promisedTime,
+                paymentMethod: order.paymentMethod,
+                totalAmount: order.totalAmount,
+                subtotalAmount: order.subtotalAmount ?? order.totalAmount,
+                totalDiscountAmount: order.totalDiscountAmount ?? 0,
+                notes: order.notes ?? '',
+                items: order.items.map((item) => {
+                  const menuItem = state.menuItems.find((entry) => entry.id === item.menuItemId)
+                  return {
+                    id: item.id,
+                    name: menuItem?.name ?? item.menuItemId,
+                    quantity: item.quantity,
+                    lineTotal:
+                      item.quantity *
+                      ((item.finalUnitPrice ?? item.originalUnitPrice ?? menuItem?.price ?? 0)),
+                    modifiers: (item.modifiers ?? []).map((modifier) => modifier.name),
+                  }
+                }),
+              },
+              service: {
+                name: service.name,
+                date: service.date,
+                startTime: service.startTime,
+                lastCollectionTime: service.lastCollectionTime,
+              },
+              location: location
+                ? {
+                    name: location.name,
+                    addressLine1: location.addressLine1,
+                    addressLine2: location.addressLine2 ?? '',
+                    townCity: location.townCity,
+                    postcode: location.postcode,
+                  }
+                : null,
+            }),
+          })
+
+          const contentType = response.headers.get('content-type') ?? ''
+          const payload = contentType.includes('application/json') ? await response.json() : null
+
+          if (!response.ok) {
+            throw new Error(
+              payload && typeof payload.error === 'string'
+                ? payload.error
+                : 'Receipt sending failed.',
+            )
+          }
+
+          commit((current) => ({
+            orders: current.orders.map((entry) =>
+              entry.id === orderId
+                ? {
+                    ...entry,
+                    receiptEmailStatus: 'sent',
+                    receiptSentAt: toIsoNow(),
+                    receiptLastError: null,
+                  }
+                : entry,
+            ),
+            activityLog: [
+              createActivity('payment_updated', 'receipts', `Receipt sent for ${order.reference}.`, orderId),
+              ...current.activityLog,
+            ],
+          }))
+        } catch (error) {
+          commit((current) => ({
+            orders: current.orders.map((entry) =>
+              entry.id === orderId
+                ? {
+                    ...entry,
+                    receiptEmailStatus: 'failed',
+                    receiptLastError:
+                      error instanceof Error ? error.message : 'Receipt sending failed.',
+                  }
+                : entry,
+            ),
+          }))
         }
       }
 
@@ -520,10 +666,19 @@ export const usePizzaOpsStore = create<StoreState>()(
             return { ok: false as const, error: allocation.warning }
           }
 
+          const normalizedEmail = input.email ? normalizeEmail(input.email) : ''
+          const existingCustomer =
+            state.customers.find(
+              (entry) =>
+                (normalizedEmail && normalizeEmail(entry.email ?? '') === normalizedEmail) ||
+                (!!input.mobile && entry.mobile === input.mobile),
+            ) ?? null
           const customer: Customer = {
-            id: randomId('cust'),
+            id: existingCustomer?.id ?? randomId('cust'),
             name: input.customerName,
             mobile: input.mobile,
+            email: normalizedEmail || undefined,
+            authUserId: input.authUserId ?? existingCustomer?.authUserId ?? null,
           }
           const now = toIsoNow()
           const orderId = randomId('order')
@@ -588,6 +743,10 @@ export const usePizzaOpsStore = create<StoreState>()(
             id: orderId,
             reference: `PZ-${100 + state.orders.length + 1}`,
             customerId: customer.id,
+            customerName: customer.name,
+            customerMobile: customer.mobile,
+            customerEmail: customer.email,
+            authUserId: customer.authUserId ?? null,
             source: input.source,
             status: 'taken',
             promisedTime: input.promisedTime,
@@ -604,6 +763,13 @@ export const usePizzaOpsStore = create<StoreState>()(
             pricingSummary,
             paymentStatus,
             paymentMethod: input.paymentMethod,
+            receiptEmailStatus: customer.email
+              ? paymentStatus === 'paid'
+                ? 'pending'
+                : 'not_requested'
+              : 'not_requested',
+            receiptSentAt: null,
+            receiptLastError: null,
             loyaltySyncStatus: 'pending',
             notes: input.notes,
             createdAt: now,
@@ -662,7 +828,19 @@ export const usePizzaOpsStore = create<StoreState>()(
               : []
 
           commit((current) => ({
-            customers: [...current.customers, customer],
+            customers: existingCustomer
+              ? current.customers.map((entry) =>
+                  entry.id === existingCustomer.id
+                    ? {
+                        ...entry,
+                        name: customer.name,
+                        mobile: customer.mobile,
+                        email: customer.email,
+                        authUserId: customer.authUserId ?? null,
+                      }
+                    : entry,
+                )
+              : [...current.customers, customer],
             orders: [order, ...current.orders],
             payments: [payment, ...current.payments],
             discountCodes: current.discountCodes.map((entry) =>
@@ -704,6 +882,10 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+
+          if (order.paymentStatus === 'paid' && order.customerEmail) {
+            void sendOrderReceipt(order.id)
+          }
 
           void mirrorOrderToSupabase(order)
 
@@ -855,13 +1037,28 @@ export const usePizzaOpsStore = create<StoreState>()(
               entry.id === paymentId ? { ...entry, status, updatedAt: toIsoNow() } : entry,
             ),
             orders: current.orders.map((entry) =>
-              entry.id === payment.orderId ? { ...entry, paymentStatus: status } : entry,
+              entry.id === payment.orderId
+                ? {
+                    ...entry,
+                    paymentStatus: status,
+                    receiptEmailStatus:
+                      status === 'paid' && entry.customerEmail
+                        ? entry.receiptEmailStatus === 'sent'
+                          ? 'sent'
+                          : 'pending'
+                        : entry.receiptEmailStatus,
+                  }
+                : entry,
             ),
             activityLog: [
               createActivity('payment_updated', 'payments', `Payment ${payment.providerReference} updated to ${status}.`, payment.orderId),
               ...current.activityLog,
             ],
           }))
+
+          if (status === 'paid') {
+            void sendOrderReceipt(payment.orderId)
+          }
         },
         updatePaymentCheckout: (paymentId, updates) => {
           const state = get()

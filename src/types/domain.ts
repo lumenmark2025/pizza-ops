@@ -162,6 +162,8 @@ export type Customer = {
   id: string
   name: string
   mobile?: string
+  email?: string
+  authUserId?: string | null
 }
 
 export type OrderItem = {
@@ -194,6 +196,10 @@ export type Order = {
   id: string
   reference: string
   customerId: string
+  customerName?: string
+  customerMobile?: string
+  customerEmail?: string
+  authUserId?: string | null
   source: OrderSource
   status: OrderStatus
   promisedTime: string
@@ -209,6 +215,9 @@ export type Order = {
   pricingSummary?: PricingSummary
   paymentStatus: PaymentStatus
   paymentMethod: PaymentMethod
+  receiptEmailStatus?: 'not_requested' | 'pending' | 'sending' | 'sent' | 'failed'
+  receiptSentAt?: string | null
+  receiptLastError?: string | null
   loyaltySyncStatus: SyncStatus
   createdAt: string
   pagerNumber?: number | null

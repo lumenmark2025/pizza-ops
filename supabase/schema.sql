@@ -118,8 +118,13 @@ create table if not exists service_inventory (
 create table if not exists customers (
   id text primary key,
   name text not null,
-  mobile text
+  mobile text,
+  email text,
+  auth_user_id text
 );
+
+create index if not exists idx_customers_email
+  on customers (lower(email));
 
 create table if not exists orders (
   id text primary key,
@@ -129,6 +134,10 @@ create table if not exists orders (
   source text not null,
   status text not null check (status in ('taken', 'prepping', 'in_oven', 'ready', 'completed')),
   promised_time timestamptz not null,
+  customer_name text,
+  customer_mobile text,
+  customer_email text,
+  auth_user_id text,
   pizza_count integer not null default 0,
   subtotal_amount numeric not null default 0,
   total_discount_amount numeric not null default 0,
@@ -140,6 +149,9 @@ create table if not exists orders (
   pager_number integer,
   payment_status text not null,
   payment_method text not null,
+  receipt_email_status text not null default 'not_requested',
+  receipt_sent_at timestamptz,
+  receipt_last_error text,
   loyverse_sync_status text not null,
   notes text,
   created_at timestamptz not null default now(),
@@ -149,6 +161,12 @@ create table if not exists orders (
   ready_at timestamptz,
   completed_at timestamptz
 );
+
+create index if not exists idx_orders_customer_email
+  on orders (lower(customer_email));
+
+create index if not exists idx_orders_auth_user_id
+  on orders (auth_user_id);
 
 create table if not exists order_items (
   id text primary key,

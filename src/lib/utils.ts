@@ -18,3 +18,15 @@ export function titleCase(value: string) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
 }
+
+export function normalizeEmail(value: string) {
+  return value.trim().toLowerCase()
+}
+
+export function isValidEmail(value: string) {
+  if (!value.trim()) {
+    return false
+  }
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}

@@ -181,6 +181,7 @@
         {"name": "customer_name", "type": "text", "default": null, "nullable": "NO"},
         {"name": "customer_mobile", "type": "text", "default": null, "nullable": "YES"},
         {"name": "customer_email", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "auth_user_id", "type": "text", "default": null, "nullable": "YES"},
         {"name": "status", "type": "text", "default": "'taken'::text", "nullable": "NO"},
         {"name": "scheduled_slot_id", "type": "uuid", "default": null, "nullable": "YES"},
         {"name": "promised_collection_time", "type": "timestamp with time zone", "default": null, "nullable": "YES"},
@@ -197,6 +198,9 @@
         {"name": "payment_status", "type": "text", "default": "'unpaid'::text", "nullable": "NO"},
         {"name": "payment_method", "type": "text", "default": null, "nullable": "YES"},
         {"name": "payment_reference", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "receipt_email_status", "type": "text", "default": "'not_requested'::text", "nullable": "NO"},
+        {"name": "receipt_sent_at", "type": "timestamp with time zone", "default": null, "nullable": "YES"},
+        {"name": "receipt_last_error", "type": "text", "default": null, "nullable": "YES"},
         {"name": "loyverse_receipt_id", "type": "text", "default": null, "nullable": "YES"},
         {"name": "loyverse_sync_status", "type": "text", "default": "'pending'::text", "nullable": "NO"},
         {"name": "loyverse_sync_error", "type": "text", "default": null, "nullable": "YES"},
@@ -217,7 +221,9 @@
         {"index_name": "idx_orders_promised_collection_time", "definition": "CREATE INDEX idx_orders_promised_collection_time ON public.orders USING btree (promised_collection_time)"},
         {"index_name": "idx_orders_source", "definition": "CREATE INDEX idx_orders_source ON public.orders USING btree (source)"},
         {"index_name": "idx_orders_loyverse_sync_status", "definition": "CREATE INDEX idx_orders_loyverse_sync_status ON public.orders USING btree (loyverse_sync_status)"},
-        {"index_name": "idx_orders_applied_discount_code_id", "definition": "CREATE INDEX idx_orders_applied_discount_code_id ON public.orders USING btree (applied_discount_code_id)"}
+        {"index_name": "idx_orders_applied_discount_code_id", "definition": "CREATE INDEX idx_orders_applied_discount_code_id ON public.orders USING btree (applied_discount_code_id)"},
+        {"index_name": "idx_orders_customer_email", "definition": "CREATE INDEX idx_orders_customer_email ON public.orders USING btree (lower(customer_email))"},
+        {"index_name": "idx_orders_auth_user_id", "definition": "CREATE INDEX idx_orders_auth_user_id ON public.orders USING btree (auth_user_id)"}
       ],
       "foreign_keys": [
         {"column": "applied_discount_code_id", "references_table": "discount_codes", "references_column": "id"},
@@ -292,6 +298,7 @@
         {"name": "full_name", "type": "text", "default": null, "nullable": "NO"},
         {"name": "mobile", "type": "text", "default": null, "nullable": "YES"},
         {"name": "email", "type": "text", "default": null, "nullable": "YES"},
+        {"name": "auth_user_id", "type": "text", "default": null, "nullable": "YES"},
         {"name": "marketing_opt_in", "type": "boolean", "default": "false", "nullable": "NO"},
         {"name": "notes", "type": "text", "default": null, "nullable": "YES"},
         {"name": "created_at", "type": "timestamp with time zone", "default": "now()", "nullable": "NO"},
@@ -300,7 +307,7 @@
       "indexes": [
         {"index_name": "customers_pkey", "definition": "CREATE UNIQUE INDEX customers_pkey ON public.customers USING btree (id)"},
         {"index_name": "idx_customers_mobile", "definition": "CREATE INDEX idx_customers_mobile ON public.customers USING btree (mobile)"},
-        {"index_name": "idx_customers_email", "definition": "CREATE INDEX idx_customers_email ON public.customers USING btree (email)"}
+        {"index_name": "idx_customers_email", "definition": "CREATE INDEX idx_customers_email ON public.customers USING btree (lower(email))"}
       ],
       "foreign_keys": null
     },
