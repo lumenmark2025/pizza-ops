@@ -391,7 +391,7 @@ export function OrderEntryPage() {
             <div className="flex flex-wrap gap-2">
               {[10, 20, 50, 100].map((percent) => (
                 <Button key={percent} size="sm" variant="secondary" onClick={() => applyOrderManualDiscount(percent)}>
-                  {percent}% off
+                  {percent}%
                 </Button>
               ))}
               <Button size="sm" variant="outline" onClick={clearOrderDiscount}>Clear</Button>
@@ -452,13 +452,13 @@ export function OrderEntryPage() {
                       </p>
                     ) : null}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     <Button size="sm" variant="outline" onClick={() => updateQuantity(item.id, item.quantity - 1)}>-</Button>
                     <span className="w-6 text-center font-semibold">{item.quantity}</span>
                     <Button size="sm" variant="outline" onClick={() => updateQuantity(item.id, item.quantity + 1)}>+</Button>
                     {eligibleModifiers.length ? (
                       <Button size="sm" variant="secondary" onClick={() => setExpandedItemId((current) => current === item.id ? null : item.id)}>
-                        Modify
+                        Modifiers
                       </Button>
                     ) : null}
                   </div>
@@ -466,10 +466,10 @@ export function OrderEntryPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   {[10, 20, 50, 100].map((percent) => (
                     <Button key={percent} size="sm" variant="outline" onClick={() => applyItemManualDiscount(item.id, percent)}>
-                      {percent}% off item
+                      {percent}%
                     </Button>
                   ))}
-                  <Button size="sm" variant="outline" onClick={() => clearItemDiscount(item.id)}>Clear item discount</Button>
+                  <Button size="sm" variant="outline" onClick={() => clearItemDiscount(item.id)}>Clear</Button>
                 </div>
                 {eligibleModifiers.length && expandedItemId === item.id ? (
                   <div className="mt-3 flex flex-wrap gap-2">

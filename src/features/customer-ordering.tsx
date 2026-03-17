@@ -7,7 +7,9 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
+import { validatePublicDiscountCode } from '../integrations/discounts'
 import { createHostedSumUpCheckout } from '../integrations/sumup'
+import { getOrderPricingSummary } from '../lib/discounts'
 import {
   MENU_CATEGORY_OPTIONS,
   getMenuCategoryLabel,
@@ -23,7 +25,7 @@ import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
 import { cn, currency } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
-import type { OrderItem, PaymentStatus } from '../types/domain'
+import type { AppliedDiscountSummary, MenuItem, OrderItem, PaymentStatus, PricingSummary } from '../types/domain'
 
 const PUBLIC_DRAFT_KEY = 'pizza_ops_public_order_draft_v1'
 
@@ -33,6 +35,9 @@ type PublicDraft = {
   customerName: string
   mobile: string
   notes: string
+  discountCode: string
+  appliedOrderDiscount: AppliedDiscountSummary | null
+  pricingSummary: PricingSummary | null
   selectedTime: string
   paymentState: 'draft' | 'pending_payment' | 'paid' | 'cancelled'
   pendingOrderId: string | null
@@ -53,6 +58,9 @@ const EMPTY_DRAFT: PublicDraft = {
   customerName: '',
   mobile: '',
   notes: '',
+  discountCode: '',
+  appliedOrderDiscount: null,
+  pricingSummary: null,
   selectedTime: '',
   paymentState: 'draft',
   pendingOrderId: null,
@@ -111,6 +119,163 @@ function usePublicDraft() {
     patchDraft: (updates: Partial<PublicDraft>) =>
       setDraft((current) => ({ ...current, ...updates })),
     resetDraft: () => setDraft(EMPTY_DRAFT),
+  }
+}
+
+function getDraftResetPatch() {
+  return {
+    paymentState: 'draft' as const,
+    pendingOrderId: null,
+    pendingPaymentId: null,
+    pendingCheckoutUrl: null,
+  }
+}
+
+function getBasketSignature(basket: OrderItem[]) {
+  return JSON.stringify(
+    basket.map((item) => ({
+      id: item.id,
+      menuItemId: item.menuItemId,
+      quantity: item.quantity,
+      modifiers: (item.modifiers ?? []).map((modifier) => ({
+        modifierId: modifier.modifierId,
+        quantity: modifier.quantity,
+      })),
+    })),
+  )
+}
+
+function useCustomerVoucher(
+  draft: PublicDraft,
+  patchDraft: (updates: Partial<PublicDraft>) => void,
+  menuItems: MenuItem[],
+) {
+  const [discountCodeInput, setDiscountCodeInput] = useState(draft.discountCode)
+  const [discountMessage, setDiscountMessage] = useState<string | null>(null)
+  const [isApplyingDiscount, setIsApplyingDiscount] = useState(false)
+
+  const pricingSummary = useMemo(
+    () => getOrderPricingSummary(draft.basket, menuItems, draft.appliedOrderDiscount?.appliedAmount ?? 0),
+    [draft.appliedOrderDiscount?.appliedAmount, draft.basket, menuItems],
+  )
+  const basketSignature = useMemo(() => getBasketSignature(draft.basket), [draft.basket])
+
+  useEffect(() => {
+    setDiscountCodeInput(draft.discountCode)
+  }, [draft.discountCode])
+
+  useEffect(() => {
+    if (!draft.discountCode) {
+      if (draft.appliedOrderDiscount || draft.pricingSummary) {
+        patchDraft({
+          appliedOrderDiscount: null,
+          pricingSummary: getOrderPricingSummary(draft.basket, menuItems, 0),
+        })
+      }
+      return
+    }
+
+    if (!draft.basket.length) {
+      patchDraft({
+        ...getDraftResetPatch(),
+        appliedOrderDiscount: null,
+        pricingSummary: getOrderPricingSummary([], menuItems, 0),
+      })
+      return
+    }
+
+    let cancelled = false
+
+    async function refreshAppliedDiscount() {
+      const result = await validatePublicDiscountCode({
+        code: draft.discountCode,
+        items: draft.basket,
+      })
+
+      if (cancelled) {
+        return
+      }
+
+      if (!result.ok) {
+        patchDraft({
+          ...getDraftResetPatch(),
+          appliedOrderDiscount: null,
+          pricingSummary: getOrderPricingSummary(draft.basket, menuItems, 0),
+        })
+        setDiscountMessage(result.error)
+        return
+      }
+
+      patchDraft({
+        appliedOrderDiscount: result.appliedOrderDiscount,
+        pricingSummary: result.pricingSummary,
+      })
+    }
+
+    void refreshAppliedDiscount()
+
+    return () => {
+      cancelled = true
+    }
+  }, [basketSignature, draft.basket, draft.discountCode, menuItems, patchDraft])
+
+  async function applyDiscountCode() {
+    if (!discountCodeInput.trim()) {
+      setDiscountMessage('Enter a discount or gift voucher code.')
+      return { ok: false as const }
+    }
+
+    if (!draft.basket.length) {
+      setDiscountMessage('Add items before applying a code.')
+      return { ok: false as const }
+    }
+
+    setIsApplyingDiscount(true)
+    const result = await validatePublicDiscountCode({
+      code: discountCodeInput,
+      items: draft.basket,
+    })
+    setIsApplyingDiscount(false)
+
+    if (!result.ok) {
+      setDiscountMessage(result.error)
+      return { ok: false as const, error: result.error }
+    }
+
+    patchDraft({
+      ...getDraftResetPatch(),
+      discountCode: discountCodeInput.trim(),
+      appliedOrderDiscount: result.appliedOrderDiscount,
+      pricingSummary: result.pricingSummary,
+    })
+    setDiscountMessage(result.message)
+    return {
+      ok: true as const,
+      appliedOrderDiscount: result.appliedOrderDiscount,
+      pricingSummary: result.pricingSummary,
+    }
+  }
+
+  function removeDiscountCode() {
+    setDiscountCodeInput('')
+    setDiscountMessage(null)
+    patchDraft({
+      ...getDraftResetPatch(),
+      discountCode: '',
+      appliedOrderDiscount: null,
+      pricingSummary: getOrderPricingSummary(draft.basket, menuItems, 0),
+    })
+  }
+
+  return {
+    discountCodeInput,
+    setDiscountCodeInput,
+    discountMessage,
+    setDiscountMessage,
+    isApplyingDiscount,
+    applyDiscountCode,
+    removeDiscountCode,
+    pricingSummary,
   }
 }
 
@@ -225,6 +390,75 @@ function CategoryJumpNav({ categorySlugs }: { categorySlugs: string[] }) {
             {getMenuCategoryShortLabel(slug, slug)}
           </a>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function VoucherCodeCard({
+  discountCodeInput,
+  setDiscountCodeInput,
+  discountMessage,
+  applyDiscountCode,
+  removeDiscountCode,
+  isApplyingDiscount,
+  appliedOrderDiscount,
+  pricingSummary,
+}: {
+  discountCodeInput: string
+  setDiscountCodeInput: (value: string) => void
+  discountMessage: string | null
+  applyDiscountCode: () => Promise<{ ok: boolean }>
+  removeDiscountCode: () => void
+  isApplyingDiscount: boolean
+  appliedOrderDiscount: AppliedDiscountSummary | null
+  pricingSummary: PricingSummary
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Discount code</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {appliedOrderDiscount
+              ? `${appliedOrderDiscount.description} (${currency(appliedOrderDiscount.appliedAmount)} off)`
+              : 'Enter a gift voucher or discount code.'}
+          </p>
+        </div>
+        {appliedOrderDiscount ? (
+          <Button size="sm" variant="outline" onClick={removeDiscountCode}>
+            Remove
+          </Button>
+        ) : null}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Input
+          placeholder="Enter code"
+          value={discountCodeInput}
+          onChange={(event) => setDiscountCodeInput(event.target.value)}
+        />
+        <Button onClick={() => void applyDiscountCode()} disabled={isApplyingDiscount}>
+          {isApplyingDiscount ? 'Checking...' : 'Apply'}
+        </Button>
+      </div>
+      {discountMessage ? (
+        <p className={cn('mt-2 text-sm', appliedOrderDiscount ? 'text-emerald-700' : 'text-rose-600')}>
+          {discountMessage}
+        </p>
+      ) : null}
+      <div className="mt-4 grid gap-1 text-sm text-slate-600">
+        <div className="flex items-center justify-between">
+          <span>Subtotal</span>
+          <span>{currency(pricingSummary.subtotalAmount)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>Discount</span>
+          <span>-{currency(pricingSummary.totalDiscountAmount)}</span>
+        </div>
+        <div className="flex items-center justify-between font-semibold text-slate-950">
+          <span>Total</span>
+          <span>{currency(pricingSummary.finalTotalAmount)}</span>
+        </div>
       </div>
     </div>
   )
@@ -461,6 +695,15 @@ export function CustomerServicePage() {
   const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
   const { draft, patchDraft } = usePublicDraft()
   const [editor, setEditor] = useState<PizzaEditorState | null>(null)
+  const {
+    discountCodeInput,
+    setDiscountCodeInput,
+    discountMessage,
+    isApplyingDiscount,
+    applyDiscountCode,
+    removeDiscountCode,
+    pricingSummary,
+  } = useCustomerVoucher(draft, patchDraft, menuItems)
 
   useEffect(() => {
     if (serviceId && service.id !== serviceId) {
@@ -473,6 +716,9 @@ export function CustomerServicePage() {
       patchDraft({
         serviceId,
         basket: [],
+        discountCode: '',
+        appliedOrderDiscount: null,
+        pricingSummary: null,
         selectedTime: '',
         paymentState: 'draft',
         pendingOrderId: null,
@@ -502,7 +748,7 @@ export function CustomerServicePage() {
       })).filter((section) => section.items.length > 0),
     [visibleMenuItems],
   )
-  const basketTotal = getOrderItemsTotal(draft.basket, menuItems)
+  const basketTotal = pricingSummary.finalTotalAmount
 
   function openNewPizza(menuItemId: string) {
     setEditor({
@@ -543,10 +789,7 @@ export function CustomerServicePage() {
 
     if (state.basketItemId) {
       patchDraft({
-        paymentState: 'draft',
-        pendingOrderId: null,
-        pendingPaymentId: null,
-        pendingCheckoutUrl: null,
+        ...getDraftResetPatch(),
         basket: draft.basket.map((entry) =>
           entry.id === state.basketItemId ? { ...entry, modifiers: nextModifiers } : entry,
         ),
@@ -560,10 +803,7 @@ export function CustomerServicePage() {
       }))
 
       patchDraft({
-        paymentState: 'draft',
-        pendingOrderId: null,
-        pendingPaymentId: null,
-        pendingCheckoutUrl: null,
+        ...getDraftResetPatch(),
         basket: [...draft.basket, ...newItems],
       })
     }
@@ -690,10 +930,7 @@ export function CustomerServicePage() {
                         Edit
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => patchDraft({
-                        paymentState: 'draft',
-                        pendingOrderId: null,
-                        pendingPaymentId: null,
-                        pendingCheckoutUrl: null,
+                        ...getDraftResetPatch(),
                         basket: draft.basket.filter((entry) => entry.id !== item.id),
                       })}>
                         Remove
@@ -713,9 +950,31 @@ export function CustomerServicePage() {
               <p className="text-sm uppercase tracking-[0.2em] text-slate-300">Total</p>
               <p className="text-3xl font-bold">{currency(basketTotal)}</p>
             </div>
+            <div className="mt-3 grid gap-1 text-sm text-slate-300">
+              <div className="flex items-center justify-between">
+                <span>Subtotal</span>
+                <span>{currency(pricingSummary.subtotalAmount)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Discount</span>
+                <span>-{currency(pricingSummary.totalDiscountAmount)}</span>
+              </div>
+            </div>
             <Button className="mt-4 w-full bg-orange-500 text-white hover:bg-orange-400" disabled={!draft.basket.length || !service.acceptPublicOrders} onClick={() => navigate('/order/checkout')}>
               Continue to checkout
             </Button>
+          </div>
+          <div className="mt-4">
+            <VoucherCodeCard
+              discountCodeInput={discountCodeInput}
+              setDiscountCodeInput={setDiscountCodeInput}
+              discountMessage={discountMessage}
+              applyDiscountCode={applyDiscountCode}
+              removeDiscountCode={removeDiscountCode}
+              isApplyingDiscount={isApplyingDiscount}
+              appliedOrderDiscount={draft.appliedOrderDiscount}
+              pricingSummary={pricingSummary}
+            />
           </div>
         </Card>
       </div>
@@ -744,6 +1003,16 @@ export function CustomerCheckoutPage() {
   const { draft, patchDraft } = usePublicDraft()
   const [message, setMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const {
+    discountCodeInput,
+    setDiscountCodeInput,
+    discountMessage,
+    setDiscountMessage,
+    isApplyingDiscount,
+    applyDiscountCode,
+    removeDiscountCode,
+    pricingSummary,
+  } = useCustomerVoucher(draft, patchDraft, menuItems)
 
   useEffect(() => {
     if (draft.serviceId && service.id !== draft.serviceId) {
@@ -753,7 +1022,7 @@ export function CustomerCheckoutPage() {
 
   const location = locations.find((entry) => entry.id === service.locationId)
   const availableSlots = useMemo(() => getAvailableTimes(draft.basket), [draft.basket, getAvailableTimes])
-  const total = getOrderItemsTotal(draft.basket, menuItems)
+  const total = pricingSummary.finalTotalAmount
 
   useEffect(() => {
     if (!draft.selectedTime && availableSlots[0]) {
@@ -784,6 +1053,35 @@ export function CustomerCheckoutPage() {
     setIsSubmitting(true)
     setMessage(null)
 
+    let appliedOrderDiscount = draft.appliedOrderDiscount
+    let latestPricingSummary = pricingSummary
+
+    if (draft.discountCode) {
+      const validation = await validatePublicDiscountCode({
+        code: draft.discountCode,
+        items: draft.basket,
+      })
+
+      if (!validation.ok) {
+        patchDraft({
+          ...getDraftResetPatch(),
+          appliedOrderDiscount: null,
+          pricingSummary: getOrderPricingSummary(draft.basket, menuItems, 0),
+        })
+        setDiscountMessage(validation.error)
+        setMessage(validation.error)
+        setIsSubmitting(false)
+        return
+      }
+
+      appliedOrderDiscount = validation.appliedOrderDiscount
+      latestPricingSummary = validation.pricingSummary
+      patchDraft({
+        appliedOrderDiscount,
+        pricingSummary: latestPricingSummary,
+      })
+    }
+
     const result = createOrder({
       customerName: draft.customerName,
       mobile: draft.mobile,
@@ -792,6 +1090,7 @@ export function CustomerCheckoutPage() {
       items: draft.basket,
       paymentMethod: 'sumup_online',
       notes: draft.notes,
+      appliedOrderDiscount,
     })
 
     if (!result.ok || !result.paymentId) {
@@ -803,7 +1102,7 @@ export function CustomerCheckoutPage() {
     try {
       const checkout = await createHostedSumUpCheckout({
         orderId: result.orderId,
-        amount: total,
+        amount: latestPricingSummary.finalTotalAmount,
         description: `${service.name} order for ${draft.customerName}`,
       })
 
@@ -818,6 +1117,7 @@ export function CustomerCheckoutPage() {
         pendingOrderId: result.orderId,
         pendingPaymentId: result.paymentId,
         pendingCheckoutUrl: checkout.hostedCheckoutUrl,
+        pricingSummary: latestPricingSummary,
       })
       window.location.assign(checkout.hostedCheckoutUrl)
     } catch (error) {
@@ -858,8 +1158,24 @@ export function CustomerCheckoutPage() {
             })}
           </div>
           <div className="mt-6 rounded-2xl bg-slate-950 p-4 text-white">
-            <p className="text-sm uppercase tracking-[0.2em] text-slate-300">Total</p>
-            <p className="mt-1 text-3xl font-bold">{currency(total)}</p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm uppercase tracking-[0.2em] text-slate-300">Total</p>
+              <p className="text-3xl font-bold">{currency(total)}</p>
+            </div>
+            <div className="mt-3 grid gap-1 text-sm text-slate-300">
+              <div className="flex items-center justify-between">
+                <span>Subtotal</span>
+                <span>{currency(pricingSummary.subtotalAmount)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Discount</span>
+                <span>-{currency(pricingSummary.totalDiscountAmount)}</span>
+              </div>
+              <div className="flex items-center justify-between font-semibold text-white">
+                <span>Final total</span>
+                <span>{currency(pricingSummary.finalTotalAmount)}</span>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -881,6 +1197,18 @@ export function CustomerCheckoutPage() {
             <Input placeholder="Your name" value={draft.customerName} onChange={(event) => patchDraft({ customerName: event.target.value })} />
             <Input placeholder="Mobile number (optional)" value={draft.mobile} onChange={(event) => patchDraft({ mobile: event.target.value })} />
             <Textarea placeholder="Notes for the team" value={draft.notes} onChange={(event) => patchDraft({ notes: event.target.value })} />
+          </div>
+          <div className="mt-5">
+            <VoucherCodeCard
+              discountCodeInput={discountCodeInput}
+              setDiscountCodeInput={setDiscountCodeInput}
+              discountMessage={discountMessage}
+              applyDiscountCode={applyDiscountCode}
+              removeDiscountCode={removeDiscountCode}
+              isApplyingDiscount={isApplyingDiscount}
+              appliedOrderDiscount={draft.appliedOrderDiscount}
+              pricingSummary={pricingSummary}
+            />
           </div>
           {draft.paymentState === 'pending_payment' ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
