@@ -36,11 +36,13 @@ export function IngredientsAdminPage() {
   const [ingredientDraft, setIngredientDraft] = useState<Ingredient>(emptyIngredient())
   const [ingredientDefaultQuantity, setIngredientDefaultQuantity] = useState(0)
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   function resetIngredientForm() {
     setIngredientDraft(emptyIngredient())
     setIngredientDefaultQuantity(0)
     setEditingIngredientId(null)
+    setSaveError(null)
   }
 
   function editIngredient(ingredient: Ingredient) {
@@ -49,6 +51,7 @@ export function IngredientsAdminPage() {
       inventoryDefaults.find((entry) => entry.ingredientId === ingredient.id)?.quantity ?? 0,
     )
     setEditingIngredientId(ingredient.id)
+    setSaveError(null)
   }
 
   async function saveIngredient() {
@@ -66,8 +69,13 @@ export function IngredientsAdminPage() {
       id: nextId,
     }
 
-    await upsertIngredient(next, ingredientDefaultQuantity, 'manager')
-    resetIngredientForm()
+    try {
+      setSaveError(null)
+      await upsertIngredient(next, ingredientDefaultQuantity, 'manager')
+      resetIngredientForm()
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Ingredient save failed.')
+    }
   }
 
   return (
@@ -123,6 +131,7 @@ export function IngredientsAdminPage() {
               Clear form
             </Button>
           </div>
+          {saveError ? <p className="text-sm font-medium text-rose-600">{saveError}</p> : null}
         </div>
       </Card>
 

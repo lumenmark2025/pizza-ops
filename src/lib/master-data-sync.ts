@@ -9,7 +9,7 @@ import type {
   ServiceSnapshot,
 } from '../types/domain'
 import { normalizeMenuItem, resolveMenuCategorySlug } from './menu'
-import { supabase, supabaseEnabled } from './supabase'
+import { supabase } from './supabase'
 
 type IngredientRow = {
   id: string
@@ -52,7 +52,7 @@ function isMissingIngredientThresholdColumn(error: { code?: string; message?: st
 }
 
 async function selectIngredientRows() {
-  if (!supabase || !supabaseEnabled) {
+  if (!supabase) {
     return { data: null as IngredientRow[] | null, error: null }
   }
 
@@ -92,8 +92,8 @@ function mapIngredientRow(row: IngredientRow, existing: Ingredient | undefined):
 }
 
 export async function persistIngredientToSupabase(ingredient: Ingredient): Promise<Ingredient | null> {
-  if (!supabase || !supabaseEnabled) {
-    return ingredient
+  if (!supabase) {
+    throw new Error('Supabase client is not configured for ingredient writes.')
   }
 
   const payload = {
@@ -125,24 +125,22 @@ export async function persistIngredientToSupabase(ingredient: Ingredient): Promi
       .single()
 
     if (fallback.error || !fallback.data) {
-      console.error('persistIngredientToSupabase fallback error', { ingredient, error: fallback.error })
-      return null
+      throw new Error(fallback.error.message)
     }
 
     return mapIngredientRow(fallback.data as IngredientRow, ingredient)
   }
 
   if (primary.error || !primary.data) {
-    console.error('persistIngredientToSupabase error', { ingredient, error: primary.error })
-    return null
+    throw new Error(primary.error.message)
   }
 
   return mapIngredientRow(primary.data as IngredientRow, ingredient)
 }
 
 export async function persistMenuItemToSupabase(menuItem: MenuItem): Promise<MenuItem | null> {
-  if (!supabase || !supabaseEnabled) {
-    return normalizeMenuItem(menuItem)
+  if (!supabase) {
+    throw new Error('Supabase client is not configured for menu item writes.')
   }
 
   const normalized = normalizeMenuItem(menuItem)
@@ -170,8 +168,7 @@ export async function persistMenuItemToSupabase(menuItem: MenuItem): Promise<Men
     .single()
 
   if (error || !data) {
-    console.error('persistMenuItemToSupabase error', { menuItem, error })
-    return null
+    throw new Error(error.message)
   }
 
   return mapMenuItemRow(data as MenuItemRow)
@@ -181,15 +178,8 @@ export async function persistMenuItemRecipesToSupabase(
   menuItemId: string,
   recipeRows: MenuItemRecipe[],
 ): Promise<MenuItemRecipe[] | null> {
-  if (!supabase || !supabaseEnabled) {
-    return recipeRows
-      .filter((entry) => entry.quantity > 0)
-      .map((entry) => ({
-        ...entry,
-        menuItemId,
-        quantity: Number(entry.quantity),
-        affectsAvailability: entry.affectsAvailability !== false,
-      }))
+  if (!supabase) {
+    throw new Error('Supabase client is not configured for recipe writes.')
   }
 
   const { error: deleteError } = await supabase
@@ -198,8 +188,7 @@ export async function persistMenuItemRecipesToSupabase(
     .eq('menu_item_id', menuItemId)
 
   if (deleteError) {
-    console.error('persistMenuItemRecipesToSupabase delete error', deleteError)
-    return null
+    throw new Error(deleteError.message)
   }
 
   const payload = recipeRows
@@ -214,8 +203,7 @@ export async function persistMenuItemRecipesToSupabase(
   if (payload.length) {
     const { error: insertError } = await supabase.from('menu_item_recipes').insert(payload)
     if (insertError) {
-      console.error('persistMenuItemRecipesToSupabase insert error', insertError)
-      return null
+      throw new Error(insertError.message)
     }
   }
 
@@ -225,8 +213,7 @@ export async function persistMenuItemRecipesToSupabase(
     .eq('menu_item_id', menuItemId)
 
   if (error) {
-    console.error('persistMenuItemRecipesToSupabase load error', error)
-    return null
+    throw new Error(error.message)
   }
 
   return ((data ?? []) as RecipeRow[]).map((row) => ({
@@ -241,7 +228,7 @@ export async function persistMenuItemRecipesToSupabase(
 export async function loadMasterDataFromSupabase(
   existingSnapshot: Pick<ServiceSnapshot, 'ingredients' | 'inventory' | 'inventoryDefaults' | 'modifiers' | 'orders' | 'discountCodes'>,
 ): Promise<MasterDataPatch | null> {
-  if (!supabase || !supabaseEnabled) {
+  if (!supabase) {
     return null
   }
 
@@ -348,170 +335,175 @@ function remapDiscountCodes(
 }
 
 export async function syncMasterDataToSupabase(snapshot: ServiceSnapshot): Promise<MasterDataPatch | null> {
-  if (!supabase || !supabaseEnabled) {
+  if (!supabase) {
     return null
   }
 
-  const [ingredientResult, { data: menuItemRows, error: menuLoadError }] =
-    await Promise.all([
-      selectIngredientRows(),
-      supabase.from('menu_items').select(
-        'id, name, category, category_slug, description, base_price_pence, sort_order, chilli_rating, image_url, active, loyverse_item_id',
-      ),
-    ])
+  try {
+    const [ingredientResult, { data: menuItemRows, error: menuLoadError }] =
+      await Promise.all([
+        selectIngredientRows(),
+        supabase.from('menu_items').select(
+          'id, name, category, category_slug, description, base_price_pence, sort_order, chilli_rating, image_url, active, loyverse_item_id',
+        ),
+      ])
 
-  const { data: ingredientRows, error: ingredientLoadError } = ingredientResult
+    const { data: ingredientRows, error: ingredientLoadError } = ingredientResult
 
-  if (ingredientLoadError || menuLoadError) {
-    console.error('syncMasterDataToSupabase load error', { ingredientLoadError, menuLoadError })
-    return null
-  }
-
-  const existingIngredients = (ingredientRows ?? []) as IngredientRow[]
-  const existingMenuItems = (menuItemRows ?? []) as MenuItemRow[]
-  const ingredientById = new Map(existingIngredients.map((row) => [row.id, row]))
-  const ingredientByName = new Map(existingIngredients.map((row) => [normalizeNameKey(row.name), row]))
-  const menuById = new Map(existingMenuItems.map((row) => [row.id, row]))
-  const menuByName = new Map(existingMenuItems.map((row) => [normalizeNameKey(row.name), row]))
-
-  const ingredientIdMap = new Map<string, string>()
-  const syncedIngredients: Ingredient[] = []
-
-  for (const ingredient of snapshot.ingredients) {
-    const existing =
-      (isUuid(ingredient.id) ? ingredientById.get(ingredient.id) : null) ??
-      ingredientByName.get(normalizeNameKey(ingredient.name))
-
-    const savedIngredient = await persistIngredientToSupabase({
-      ...ingredient,
-      id: existing?.id ?? ingredient.id,
-    })
-    if (!savedIngredient) {
-      console.error('syncMasterDataToSupabase ingredient save error', { ingredient })
+    if (ingredientLoadError || menuLoadError) {
+      console.error('syncMasterDataToSupabase load error', { ingredientLoadError, menuLoadError })
       return null
     }
 
-    ingredientIdMap.set(ingredient.id, savedIngredient.id)
-    syncedIngredients.push(savedIngredient)
-  }
+    const existingIngredients = (ingredientRows ?? []) as IngredientRow[]
+    const existingMenuItems = (menuItemRows ?? []) as MenuItemRow[]
+    const ingredientById = new Map(existingIngredients.map((row) => [row.id, row]))
+    const ingredientByName = new Map(existingIngredients.map((row) => [normalizeNameKey(row.name), row]))
+    const menuById = new Map(existingMenuItems.map((row) => [row.id, row]))
+    const menuByName = new Map(existingMenuItems.map((row) => [normalizeNameKey(row.name), row]))
 
-  const menuItemIdMap = new Map<string, string>()
-  const syncedMenuItems: MenuItem[] = []
+    const ingredientIdMap = new Map<string, string>()
+    const syncedIngredients: Ingredient[] = []
 
-  for (const menuItem of snapshot.menuItems.map(normalizeMenuItem)) {
-    const existing =
-      (isUuid(menuItem.id) ? menuById.get(menuItem.id) : null) ??
-      menuByName.get(normalizeNameKey(menuItem.name))
+    for (const ingredient of snapshot.ingredients) {
+      const existing =
+        (isUuid(ingredient.id) ? ingredientById.get(ingredient.id) : null) ??
+        ingredientByName.get(normalizeNameKey(ingredient.name))
 
-    const payload = {
-      ...(existing ? { id: existing.id } : {}),
-      name: menuItem.name.trim(),
-      category: menuItem.category,
-      category_slug: menuItem.categorySlug,
-      description: menuItem.description,
-      base_price_pence: Math.round(Number(menuItem.price ?? 0) * 100),
-      sort_order: Number(menuItem.sortOrder ?? 0),
-      chilli_rating: Number(menuItem.chilliRating ?? 0),
-      image_url: menuItem.imageUrl ?? null,
-      active: menuItem.active ?? true,
-      loyverse_item_id: menuItem.loyverseItemId || null,
-      is_pizza: !['dips', 'drinks'].includes(resolveMenuCategorySlug(menuItem.categorySlug, menuItem.category)),
-    }
-
-    const operation = existing
-      ? supabase
-          .from('menu_items')
-          .upsert(payload)
-          .select('id, name, category, category_slug, description, base_price_pence, sort_order, chilli_rating, image_url, active, loyverse_item_id')
-          .single()
-      : supabase
-          .from('menu_items')
-          .insert(payload)
-          .select('id, name, category, category_slug, description, base_price_pence, sort_order, chilli_rating, image_url, active, loyverse_item_id')
-          .single()
-
-    const { data, error } = await operation
-    if (error || !data) {
-      console.error('syncMasterDataToSupabase menu save error', { menuItem, error })
-      return null
-    }
-
-    menuItemIdMap.set(menuItem.id, data.id)
-    syncedMenuItems.push(mapMenuItemRow(data as MenuItemRow))
-  }
-
-  const desiredRecipes = new Map<string, MenuItemRecipe>()
-  for (const recipe of snapshot.recipes) {
-    const menuItemId = menuItemIdMap.get(recipe.menuItemId) ?? recipe.menuItemId
-    const ingredientId = ingredientIdMap.get(recipe.ingredientId) ?? recipe.ingredientId
-    if (!isUuid(menuItemId) || !isUuid(ingredientId) || Number(recipe.quantity) <= 0) {
-      continue
-    }
-
-    desiredRecipes.set(`${menuItemId}:${ingredientId}`, {
-      ...recipe,
-      id: recipe.id,
-      menuItemId,
-      ingredientId,
-      quantity: Number(recipe.quantity),
-      affectsAvailability: recipe.affectsAvailability !== false,
-    })
-  }
-
-  const affectedMenuIds = Array.from(new Set(Array.from(desiredRecipes.values()).map((recipe) => recipe.menuItemId)))
-
-  if (affectedMenuIds.length) {
-    const { error: deleteError } = await supabase
-      .from('menu_item_recipes')
-      .delete()
-      .in('menu_item_id', affectedMenuIds)
-
-    if (deleteError) {
-      console.error('syncMasterDataToSupabase recipe delete error', deleteError)
-      return null
-    }
-
-    const recipePayload = Array.from(desiredRecipes.values()).map((recipe) => ({
-      menu_item_id: recipe.menuItemId,
-      ingredient_id: recipe.ingredientId,
-      quantity: recipe.quantity,
-      affects_availability: recipe.affectsAvailability !== false,
-    }))
-
-    if (recipePayload.length) {
-      const { error: insertError } = await supabase.from('menu_item_recipes').insert(recipePayload)
-      if (insertError) {
-        console.error('syncMasterDataToSupabase recipe insert error', insertError)
+      const savedIngredient = await persistIngredientToSupabase({
+        ...ingredient,
+        id: existing?.id ?? ingredient.id,
+      })
+      if (!savedIngredient) {
+        console.error('syncMasterDataToSupabase ingredient save error', { ingredient })
         return null
       }
+
+      ingredientIdMap.set(ingredient.id, savedIngredient.id)
+      syncedIngredients.push(savedIngredient)
     }
-  }
 
-  const { data: persistedRecipes, error: recipeLoadError } = await supabase
-    .from('menu_item_recipes')
-    .select('id, menu_item_id, ingredient_id, quantity, affects_availability')
+    const menuItemIdMap = new Map<string, string>()
+    const syncedMenuItems: MenuItem[] = []
 
-  if (recipeLoadError) {
-    console.error('syncMasterDataToSupabase recipe load error', recipeLoadError)
+    for (const menuItem of snapshot.menuItems.map(normalizeMenuItem)) {
+      const existing =
+        (isUuid(menuItem.id) ? menuById.get(menuItem.id) : null) ??
+        menuByName.get(normalizeNameKey(menuItem.name))
+
+      const payload = {
+        ...(existing ? { id: existing.id } : {}),
+        name: menuItem.name.trim(),
+        category: menuItem.category,
+        category_slug: menuItem.categorySlug,
+        description: menuItem.description,
+        base_price_pence: Math.round(Number(menuItem.price ?? 0) * 100),
+        sort_order: Number(menuItem.sortOrder ?? 0),
+        chilli_rating: Number(menuItem.chilliRating ?? 0),
+        image_url: menuItem.imageUrl ?? null,
+        active: menuItem.active ?? true,
+        loyverse_item_id: menuItem.loyverseItemId || null,
+        is_pizza: !['dips', 'drinks'].includes(resolveMenuCategorySlug(menuItem.categorySlug, menuItem.category)),
+      }
+
+      const operation = existing
+        ? supabase
+            .from('menu_items')
+            .upsert(payload)
+            .select('id, name, category, category_slug, description, base_price_pence, sort_order, chilli_rating, image_url, active, loyverse_item_id')
+            .single()
+        : supabase
+            .from('menu_items')
+            .insert(payload)
+            .select('id, name, category, category_slug, description, base_price_pence, sort_order, chilli_rating, image_url, active, loyverse_item_id')
+            .single()
+
+      const { data, error } = await operation
+      if (error || !data) {
+        console.error('syncMasterDataToSupabase menu save error', { menuItem, error })
+        return null
+      }
+
+      menuItemIdMap.set(menuItem.id, data.id)
+      syncedMenuItems.push(mapMenuItemRow(data as MenuItemRow))
+    }
+
+    const desiredRecipes = new Map<string, MenuItemRecipe>()
+    for (const recipe of snapshot.recipes) {
+      const menuItemId = menuItemIdMap.get(recipe.menuItemId) ?? recipe.menuItemId
+      const ingredientId = ingredientIdMap.get(recipe.ingredientId) ?? recipe.ingredientId
+      if (!isUuid(menuItemId) || !isUuid(ingredientId) || Number(recipe.quantity) <= 0) {
+        continue
+      }
+
+      desiredRecipes.set(`${menuItemId}:${ingredientId}`, {
+        ...recipe,
+        id: recipe.id,
+        menuItemId,
+        ingredientId,
+        quantity: Number(recipe.quantity),
+        affectsAvailability: recipe.affectsAvailability !== false,
+      })
+    }
+
+    const affectedMenuIds = Array.from(new Set(Array.from(desiredRecipes.values()).map((recipe) => recipe.menuItemId)))
+
+    if (affectedMenuIds.length) {
+      const { error: deleteError } = await supabase
+        .from('menu_item_recipes')
+        .delete()
+        .in('menu_item_id', affectedMenuIds)
+
+      if (deleteError) {
+        console.error('syncMasterDataToSupabase recipe delete error', deleteError)
+        return null
+      }
+
+      const recipePayload = Array.from(desiredRecipes.values()).map((recipe) => ({
+        menu_item_id: recipe.menuItemId,
+        ingredient_id: recipe.ingredientId,
+        quantity: recipe.quantity,
+        affects_availability: recipe.affectsAvailability !== false,
+      }))
+
+      if (recipePayload.length) {
+        const { error: insertError } = await supabase.from('menu_item_recipes').insert(recipePayload)
+        if (insertError) {
+          console.error('syncMasterDataToSupabase recipe insert error', insertError)
+          return null
+        }
+      }
+    }
+
+    const { data: persistedRecipes, error: recipeLoadError } = await supabase
+      .from('menu_item_recipes')
+      .select('id, menu_item_id, ingredient_id, quantity, affects_availability')
+
+    if (recipeLoadError) {
+      console.error('syncMasterDataToSupabase recipe load error', recipeLoadError)
+      return null
+    }
+
+    const syncedRecipes: MenuItemRecipe[] = ((persistedRecipes ?? []) as RecipeRow[]).map((row) => ({
+      id: row.id,
+      menuItemId: row.menu_item_id,
+      ingredientId: row.ingredient_id,
+      quantity: Number(row.quantity),
+      affectsAvailability: row.affects_availability !== false,
+    }))
+
+    return {
+      ingredients: syncedIngredients,
+      menuItems: syncedMenuItems,
+      recipes: syncedRecipes,
+      inventory: remapInventoryRows(snapshot.inventory, ingredientIdMap),
+      inventoryDefaults: remapInventoryRows(snapshot.inventoryDefaults, ingredientIdMap),
+      modifiers: remapModifiers(snapshot.modifiers as Modifier[], ingredientIdMap, menuItemIdMap),
+      orders: remapOrders(snapshot.orders as Order[], menuItemIdMap),
+      discountCodes: remapDiscountCodes(snapshot.discountCodes as DiscountCode[], menuItemIdMap),
+    }
+  } catch (error) {
+    console.error('syncMasterDataToSupabase unexpected error', error)
     return null
-  }
-
-  const syncedRecipes: MenuItemRecipe[] = ((persistedRecipes ?? []) as RecipeRow[]).map((row) => ({
-    id: row.id,
-    menuItemId: row.menu_item_id,
-    ingredientId: row.ingredient_id,
-    quantity: Number(row.quantity),
-    affectsAvailability: row.affects_availability !== false,
-  }))
-
-  return {
-    ingredients: syncedIngredients,
-    menuItems: syncedMenuItems,
-    recipes: syncedRecipes,
-    inventory: remapInventoryRows(snapshot.inventory, ingredientIdMap),
-    inventoryDefaults: remapInventoryRows(snapshot.inventoryDefaults, ingredientIdMap),
-    modifiers: remapModifiers(snapshot.modifiers as Modifier[], ingredientIdMap, menuItemIdMap),
-    orders: remapOrders(snapshot.orders as Order[], menuItemIdMap),
-    discountCodes: remapDiscountCodes(snapshot.discountCodes as DiscountCode[], menuItemIdMap),
   }
 }

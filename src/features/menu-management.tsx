@@ -100,6 +100,7 @@ export function MenuAdminPage() {
   const sortedMenuItems = useMemo(() => sortMenuItems(menuItems.map(normalizeMenuItem)), [menuItems])
   const [editingMenuItemId, setEditingMenuItemId] = useState<string | null>(sortedMenuItems[0]?.id ?? null)
   const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>(sortedMenuItems[0] ?? emptyDraft())
+  const [saveError, setSaveError] = useState<string | null>(null)
   const nextRecipeClientId = useRef(0)
   const getNextRecipeClientId = () => {
     nextRecipeClientId.current += 1
@@ -122,6 +123,7 @@ export function MenuAdminPage() {
     setEditingMenuItemId(null)
     setMenuItemDraft(emptyDraft())
     setMenuRecipeDraft([])
+    setSaveError(null)
   }
 
   function loadMenuItem(item: MenuItem | null, sourceRecipes = recipes) {
@@ -134,6 +136,7 @@ export function MenuAdminPage() {
     setEditingMenuItemId(normalizedItem.id)
     setMenuItemDraft(normalizedItem)
     setMenuRecipeDraft(buildRecipeDraft(sourceRecipes, normalizedItem.id, getNextRecipeClientId))
+    setSaveError(null)
   }
 
   async function saveMenuItem() {
@@ -159,27 +162,38 @@ export function MenuAdminPage() {
         affectsAvailability: entry.affectsAvailability !== false,
       }))
 
-    await upsertMenuItem(
-      saved,
-      savedRecipeRows,
-      'manager',
-    )
+    try {
+      setSaveError(null)
+      await upsertMenuItem(
+        saved,
+        savedRecipeRows,
+        'manager',
+      )
 
-    loadMenuItem(saved, savedRecipeRows)
+      loadMenuItem(saved, savedRecipeRows)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Menu item save failed.')
+    }
   }
 
   async function toggleMenuVisibility(item: MenuItem) {
     const normalizedItem = normalizeMenuItem(item)
-    await upsertMenuItem(
-      {
-        ...normalizedItem,
-        active: normalizedItem.active === false,
-      },
-      recipes
-        .filter((entry) => entry.menuItemId === normalizedItem.id)
-        .map((entry) => ({ ...entry })),
-      'manager',
-    )
+    try {
+      setSaveError(null)
+      await upsertMenuItem(
+        {
+          ...normalizedItem,
+          active: normalizedItem.active === false,
+        },
+        recipes
+          .filter((entry) => entry.menuItemId === normalizedItem.id)
+          .map((entry) => ({ ...entry })),
+        'manager',
+      )
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Menu visibility update failed.')
+      return
+    }
 
     if (editingMenuItemId === normalizedItem.id) {
       setMenuItemDraft((current) =>
@@ -392,6 +406,7 @@ export function MenuAdminPage() {
               <span>Spice preview</span>
               <ChilliRating rating={menuItemDraft.chilliRating ?? 0} showNoneLabel />
             </div>
+            {saveError ? <p className="text-sm font-medium text-rose-600">{saveError}</p> : null}
           </div>
         </Card>
 
