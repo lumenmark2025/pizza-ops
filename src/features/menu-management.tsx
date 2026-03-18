@@ -97,6 +97,8 @@ export function MenuAdminPage() {
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const ingredients = usePizzaOpsStore((state) => state.ingredients)
   const recipes = usePizzaOpsStore((state) => state.recipes)
+  const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
+  const masterDataLoadWarnings = usePizzaOpsStore((state) => state.masterDataLoadWarnings)
   const upsertMenuItem = usePizzaOpsStore((state) => state.upsertMenuItem)
   const sortedMenuItems = useMemo(() => sortMenuItems(menuItems.map(normalizeMenuItem)), [menuItems])
   const [editingMenuItemId, setEditingMenuItemId] = useState<string | null>(sortedMenuItems[0]?.id ?? null)
@@ -252,6 +254,12 @@ export function MenuAdminPage() {
           {supabaseConfigError ? (
             <p className="mt-4 text-sm font-medium text-rose-600">{supabaseConfigError}</p>
           ) : null}
+          {masterDataLoadError ? (
+            <p className="mt-4 text-sm font-medium text-rose-600">{masterDataLoadError}</p>
+          ) : null}
+          {masterDataLoadWarnings.map((warning) => (
+            <p key={warning} className="mt-4 text-sm font-medium text-amber-700">{warning}</p>
+          ))}
         </Card>
 
         <Card className="p-5 sm:p-6">

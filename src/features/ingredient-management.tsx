@@ -33,6 +33,8 @@ export function IngredientsAdminPage() {
   const ingredients = usePizzaOpsStore((state) => state.ingredients)
   const recipes = usePizzaOpsStore((state) => state.recipes)
   const inventoryDefaults = usePizzaOpsStore((state) => state.inventoryDefaults)
+  const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
+  const masterDataLoadWarnings = usePizzaOpsStore((state) => state.masterDataLoadWarnings)
   const upsertIngredient = usePizzaOpsStore((state) => state.upsertIngredient)
   const [ingredientDraft, setIngredientDraft] = useState<Ingredient>(emptyIngredient())
   const [ingredientDefaultQuantity, setIngredientDefaultQuantity] = useState(0)
@@ -94,6 +96,12 @@ export function IngredientsAdminPage() {
         {supabaseConfigError ? (
           <p className="mt-4 text-sm font-medium text-rose-600">{supabaseConfigError}</p>
         ) : null}
+        {masterDataLoadError ? (
+          <p className="mt-4 text-sm font-medium text-rose-600">{masterDataLoadError}</p>
+        ) : null}
+        {masterDataLoadWarnings.map((warning) => (
+          <p key={warning} className="mt-4 text-sm font-medium text-amber-700">{warning}</p>
+        ))}
         <div className="mt-6 grid gap-3">
           <div className="flex items-center gap-2">
             <Badge variant={editingIngredientId ? 'blue' : 'slate'}>

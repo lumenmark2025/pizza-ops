@@ -62,12 +62,22 @@ type MasterDataPatch = Pick<
   'ingredients' | 'menuItems' | 'recipes' | 'inventory' | 'inventoryDefaults' | 'modifiers' | 'orders' | 'discountCodes'
 >
 
+export type MasterDataLoadResult = {
+  patch: MasterDataPatch | null
+  error: string | null
+  warnings: string[]
+}
+
 function isMissingIngredientThresholdColumn(error: { code?: string; message?: string } | null | undefined) {
   return error?.code === 'PGRST204' && error.message?.includes('low_stock_threshold')
 }
 
 function isMissingModifierColumn(error: { code?: string; message?: string } | null | undefined) {
-  return error?.code === 'PGRST204'
+  return error?.code === 'PGRST204' || error?.code === '42703'
+}
+
+function isMissingRelation(error: { code?: string; message?: string } | null | undefined) {
+  return error?.code === 'PGRST205' || error?.code === '42P01'
 }
 
 function formatPersistError(
@@ -120,7 +130,7 @@ async function selectIngredientRows() {
 
 async function selectModifierRows() {
   if (!supabase) {
-    return { data: null as ModifierRow[] | null, error: null }
+    return { data: null as ModifierRow[] | null, error: null, warning: null as string | null }
   }
 
   const withExtendedColumns = await supabase
@@ -128,11 +138,71 @@ async function selectModifierRows() {
     .select('id, name, price_delta, stock_ingredient_id, stock_quantity, max_per_pizza, applies_to_all_pizzas')
 
   if (!isMissingModifierColumn(withExtendedColumns.error)) {
-    return withExtendedColumns as { data: ModifierRow[] | null; error: typeof withExtendedColumns.error }
+    if (isMissingRelation(withExtendedColumns.error)) {
+      return {
+        data: [],
+        error: null,
+        warning: `modifiers load skipped: ${withExtendedColumns.error?.message ?? 'table missing'}`,
+      }
+    }
+
+    return {
+      ...(withExtendedColumns as { data: ModifierRow[] | null; error: typeof withExtendedColumns.error }),
+      warning: null,
+    }
   }
 
-  const fallback = await supabase.from('modifiers').select('id, name, price_delta')
-  return fallback as { data: ModifierRow[] | null; error: typeof fallback.error }
+  const fallback = await supabase.from('modifiers').select('id, name')
+  if (fallback.error) {
+    return { data: null, error: fallback.error, warning: null }
+  }
+
+  return {
+    data: (fallback.data ?? []).map((row) => ({ ...row, price_delta: 0 })) as ModifierRow[],
+    error: null,
+    warning: `modifiers load degraded: ${withExtendedColumns.error?.message ?? 'extended columns missing'}`,
+  }
+}
+
+async function selectMenuItemModifierRows() {
+  if (!supabase) {
+    return { data: null as MenuItemModifierRow[] | null, error: null, warning: null as string | null }
+  }
+
+  const result = await supabase.from('menu_item_modifiers').select('menu_item_id, modifier_id')
+  if (isMissingRelation(result.error)) {
+    return {
+      data: [],
+      error: null,
+      warning: `menu_item_modifiers load skipped: ${result.error?.message ?? 'table missing'}`,
+    }
+  }
+
+  return {
+    ...(result as { data: MenuItemModifierRow[] | null; error: typeof result.error }),
+    warning: null,
+  }
+}
+
+function formatLoadError(
+  step: string,
+  error: { code?: string; message?: string; details?: string | null; hint?: string | null } | null | undefined,
+) {
+  const segments = [`${step} load failed.`, error?.message ?? 'Unknown Supabase error.']
+
+  if (error?.code) {
+    segments.push(`code=${error.code}`)
+  }
+
+  if (error?.details) {
+    segments.push(`details=${error.details}`)
+  }
+
+  if (error?.hint) {
+    segments.push(`hint=${error.hint}`)
+  }
+
+  return segments.join(' ')
 }
 
 function isUuid(value?: string | null) {
@@ -441,12 +511,16 @@ export async function deleteModifierFromSupabase(modifierId: string): Promise<vo
 
 export async function loadMasterDataFromSupabase(
   existingSnapshot: Pick<ServiceSnapshot, 'ingredients' | 'inventory' | 'inventoryDefaults' | 'modifiers' | 'orders' | 'discountCodes'>,
-): Promise<MasterDataPatch | null> {
+): Promise<MasterDataLoadResult> {
   if (!supabase) {
     if (supabaseConfigError) {
       console.error('loadMasterDataFromSupabase unavailable', supabaseConfigError)
     }
-    return null
+    return {
+      patch: null,
+      error: supabaseConfigError ?? 'Supabase client unavailable.',
+      warnings: [],
+    }
   }
 
   const [
@@ -454,7 +528,7 @@ export async function loadMasterDataFromSupabase(
     { data: menuItemRows, error: menuItemError },
     { data: recipeRows, error: recipeError },
     modifierResult,
-    { data: menuItemModifierRows, error: menuItemModifierError },
+    menuItemModifierResult,
   ] = await Promise.all([
     selectIngredientRows(),
     supabase.from('menu_items').select(
@@ -462,21 +536,48 @@ export async function loadMasterDataFromSupabase(
     ),
     supabase.from('menu_item_recipes').select('id, menu_item_id, ingredient_id, quantity, affects_availability'),
     selectModifierRows(),
-    supabase.from('menu_item_modifiers').select('menu_item_id, modifier_id'),
+    selectMenuItemModifierRows(),
   ])
 
   const { data: ingredientRows, error: ingredientError } = ingredientResult
-  const { data: modifierRows, error: modifierError } = modifierResult
+  const { data: modifierRows, error: modifierError, warning: modifierWarning } = modifierResult
+  const {
+    data: menuItemModifierRows,
+    error: menuItemModifierError,
+    warning: menuItemModifierWarning,
+  } = menuItemModifierResult
 
-  if (ingredientError || menuItemError || recipeError || modifierError || menuItemModifierError) {
+  if (ingredientError || menuItemError || recipeError) {
     console.error('loadMasterDataFromSupabase error', {
       ingredientError,
       menuItemError,
       recipeError,
+    })
+    const firstFailure =
+      (ingredientError && formatLoadError('ingredients', ingredientError)) ||
+      (menuItemError && formatLoadError('menu_items', menuItemError)) ||
+      (recipeError && formatLoadError('menu_item_recipes', recipeError)) ||
+      'Master data load failed.'
+
+    return {
+      patch: null,
+      error: firstFailure,
+      warnings: [],
+    }
+  }
+
+  const warnings = [
+    modifierError ? formatLoadError('modifiers', modifierError) : null,
+    menuItemModifierError ? formatLoadError('menu_item_modifiers', menuItemModifierError) : null,
+    modifierWarning,
+    menuItemModifierWarning,
+  ].filter(Boolean) as string[]
+
+  if (modifierError || menuItemModifierError) {
+    console.error('loadMasterDataFromSupabase optional load warning', {
       modifierError,
       menuItemModifierError,
     })
-    return null
   }
 
   const ingredients = ((ingredientRows ?? []) as IngredientRow[]).map((row) =>
@@ -508,14 +609,18 @@ export async function loadMasterDataFromSupabase(
   )
 
   return {
-    ingredients,
-    menuItems,
-    recipes,
-    inventory: existingSnapshot.inventory,
-    inventoryDefaults: existingSnapshot.inventoryDefaults,
-    modifiers,
-    orders: existingSnapshot.orders,
-    discountCodes: existingSnapshot.discountCodes,
+    patch: {
+      ingredients,
+      menuItems,
+      recipes,
+      inventory: existingSnapshot.inventory,
+      inventoryDefaults: existingSnapshot.inventoryDefaults,
+      modifiers,
+      orders: existingSnapshot.orders,
+      discountCodes: existingSnapshot.discountCodes,
+    },
+    error: null,
+    warnings,
   }
 }
 

@@ -70,6 +70,8 @@ type CreateOrderInput = {
 type StoreState = ServiceSnapshot & {
   isOnline: boolean
   remoteReady: boolean
+  masterDataLoadError: string | null
+  masterDataLoadWarnings: string[]
   createOrder: (input: CreateOrderInput) => { ok: true; orderId: string; paymentId?: string } | { ok: false; error: string }
   setOnlineStatus: (status: boolean) => void
   updateOrderStatus: (orderId: string, nextStatus: OrderStatus) => void
@@ -607,14 +609,20 @@ export const usePizzaOpsStore = create<StoreState>()(
       }
 
       const refreshMasterDataFromTables = async () => {
-        const patch = await loadMasterDataFromSupabase(getPersistableSnapshot(get()))
-        if (!patch) {
+        const result = await loadMasterDataFromSupabase(getPersistableSnapshot(get()))
+        if (!result.patch) {
+          set({
+            masterDataLoadError: result.error ?? 'Master data load failed.',
+            masterDataLoadWarnings: result.warnings,
+          })
           return
         }
 
         commit(
           () => ({
-            ...patch,
+            ...result.patch,
+            masterDataLoadError: result.error,
+            masterDataLoadWarnings: result.warnings,
           }),
           { sync: false },
         )
@@ -624,6 +632,8 @@ export const usePizzaOpsStore = create<StoreState>()(
         ...getInitialState(),
         isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
         remoteReady: SAFE_MODE,
+        masterDataLoadError: null,
+        masterDataLoadWarnings: [],
         setOnlineStatus: (status) => set({ isOnline: status }),
         hydrateRemote: async () => {
           if (SAFE_MODE) {

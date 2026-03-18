@@ -24,6 +24,8 @@ export function ModifiersAdminPage() {
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const ingredients = usePizzaOpsStore((state) => state.ingredients)
   const modifiers = usePizzaOpsStore((state) => state.modifiers)
+  const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
+  const masterDataLoadWarnings = usePizzaOpsStore((state) => state.masterDataLoadWarnings)
   const upsertModifier = usePizzaOpsStore((state) => state.upsertModifier)
   const deleteModifier = usePizzaOpsStore((state) => state.deleteModifier)
   const [modifierDraft, setModifierDraft] = useState<Modifier>(emptyModifier())
@@ -37,6 +39,12 @@ export function ModifiersAdminPage() {
         <p className="mt-2 text-sm text-slate-500">
           These modifiers are shared across all services. Use clear labels so the team understands price, stock use, and limits immediately.
         </p>
+        {masterDataLoadError ? (
+          <p className="mt-4 text-sm font-medium text-rose-600">{masterDataLoadError}</p>
+        ) : null}
+        {masterDataLoadWarnings.map((warning) => (
+          <p key={warning} className="mt-4 text-sm font-medium text-amber-700">{warning}</p>
+        ))}
         <div className="mt-6 grid gap-4">
           <label className="grid gap-2 text-sm">
             <span className="font-semibold text-slate-600">Modifier name</span>
