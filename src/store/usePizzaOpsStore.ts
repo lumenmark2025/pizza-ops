@@ -10,11 +10,12 @@ import {
   validateDiscountCode,
 } from '../lib/discounts'
 import {
+  deleteModifierFromSupabase,
   loadMasterDataFromSupabase,
   persistIngredientToSupabase,
   persistMenuItemRecipesToSupabase,
   persistMenuItemToSupabase,
-  syncMasterDataToSupabase,
+  persistModifierToSupabase,
 } from '../lib/master-data-sync'
 import { normalizeMenuItem } from '../lib/menu'
 import { SAFE_MODE } from '../lib/runtime-flags'
@@ -100,8 +101,8 @@ type StoreState = ServiceSnapshot & {
     actor: string,
   ) => Promise<void>
   upsertDiscountCode: (discountCode: DiscountCode, actor: string) => void
-  upsertModifier: (modifier: Modifier, actor: string) => void
-  deleteModifier: (modifierId: string, actor: string) => void
+  upsertModifier: (modifier: Modifier, actor: string) => Promise<void>
+  deleteModifier: (modifierId: string, actor: string) => Promise<void>
   assignPager: (orderId: string, pagerNumber: number | null, actor: string) => { ok: boolean; error?: string }
   getActivePagerNumbers: () => number[]
   hydrateRemote: () => Promise<void>
@@ -129,6 +130,8 @@ const SNAPSHOT_KEYS = [
   'loyverseQueue',
   'activityLog',
 ] as const
+
+const CANONICAL_MASTER_DATA_KEYS = ['ingredients', 'menuItems', 'recipes', 'modifiers'] as const
 
 let applyingRemoteSnapshot = false
 let stopRealtimeSubscription: null | (() => void) = null
@@ -179,6 +182,40 @@ function normalizeSnapshot(snapshot: ServiceSnapshot): ServiceSnapshot {
     ...snapshot,
     menuItems: snapshot.menuItems.map(normalizeMenuItem),
   }
+}
+
+function getInitialState(): ServiceSnapshot {
+  const snapshot = createDemoState()
+  return {
+    ...snapshot,
+    ingredients: [],
+    menuItems: [],
+    recipes: [],
+    modifiers: [],
+  }
+}
+
+function getOperationalSnapshot(state: ServiceSnapshot): ServiceSnapshot {
+  const snapshot = { ...state } as ServiceSnapshot
+
+  for (const key of CANONICAL_MASTER_DATA_KEYS) {
+    ;(snapshot as Record<string, unknown>)[key] = []
+  }
+
+  return snapshot
+}
+
+function mergeOperationalSnapshot(current: ServiceSnapshot, runtimeSnapshot: ServiceSnapshot): ServiceSnapshot {
+  const merged = {
+    ...current,
+    ...runtimeSnapshot,
+  } as ServiceSnapshot
+
+  for (const key of CANONICAL_MASTER_DATA_KEYS) {
+    ;(merged as Record<string, unknown>)[key] = current[key]
+  }
+
+  return normalizeSnapshot(merged)
 }
 
 function shiftOrder(order: Order, minutes: number) {
@@ -431,7 +468,7 @@ function queueSnapshotSync(snapshot: ServiceSnapshot) {
 
   snapshotPersistTimer = setTimeout(() => {
     console.info('[pizza-ops] queueSnapshotSync flush', snapshot.service.id)
-    void persistRemoteSnapshot(snapshot)
+    void persistRemoteSnapshot(getOperationalSnapshot(snapshot))
   }, 150)
 }
 
@@ -569,20 +606,6 @@ export const usePizzaOpsStore = create<StoreState>()(
         }
       }
 
-      const syncMasterData = async () => {
-        const patch = await syncMasterDataToSupabase(getPersistableSnapshot(get()))
-        if (!patch) {
-          return
-        }
-
-        commit(
-          () => ({
-            ...patch,
-          }),
-          { sync: false },
-        )
-      }
-
       const refreshMasterDataFromTables = async () => {
         const patch = await loadMasterDataFromSupabase(getPersistableSnapshot(get()))
         if (!patch) {
@@ -598,13 +621,12 @@ export const usePizzaOpsStore = create<StoreState>()(
       }
 
       return {
-        ...createDemoState(),
+        ...getInitialState(),
         isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
         remoteReady: SAFE_MODE,
         setOnlineStatus: (status) => set({ isOnline: status }),
         hydrateRemote: async () => {
           if (SAFE_MODE) {
-            await syncMasterData()
             await refreshMasterDataFromTables()
             set({ remoteReady: true })
             return
@@ -616,9 +638,9 @@ export const usePizzaOpsStore = create<StoreState>()(
 
           hydrateRemotePromise = (async () => {
             console.info('[pizza-ops] hydrateRemote invoked')
+            await refreshMasterDataFromTables()
+
             if (!canUseRealtimeSync()) {
-              await syncMasterData()
-              await refreshMasterDataFromTables()
               set({ remoteReady: true })
               return
             }
@@ -626,10 +648,10 @@ export const usePizzaOpsStore = create<StoreState>()(
             const current = getPersistableSnapshot(get())
             const remote = await loadRemoteSnapshot(current.service.id)
             if (remote) {
-              const normalizedRemote = normalizeSnapshot(remote)
+              const normalizedRemote = mergeOperationalSnapshot(getPersistableSnapshot(get()), remote)
               const localSnapshot = getPersistableSnapshot(get())
-              const remoteJson = JSON.stringify(normalizedRemote)
-              const localJson = JSON.stringify(localSnapshot)
+              const remoteJson = JSON.stringify(getOperationalSnapshot(normalizedRemote))
+              const localJson = JSON.stringify(getOperationalSnapshot(localSnapshot))
 
               if (remoteJson !== localJson) {
                 applyingRemoteSnapshot = true
@@ -638,14 +660,10 @@ export const usePizzaOpsStore = create<StoreState>()(
               } else {
                 set({ remoteReady: true })
               }
-              await syncMasterData()
-              await refreshMasterDataFromTables()
               return
             }
 
-            await persistRemoteSnapshot(current)
-            await syncMasterData()
-            await refreshMasterDataFromTables()
+            await persistRemoteSnapshot(getOperationalSnapshot(current))
             set({ remoteReady: true })
           })().finally(() => {
             hydrateRemotePromise = null
@@ -671,9 +689,12 @@ export const usePizzaOpsStore = create<StoreState>()(
           stopRealtimeSubscription?.()
           activeRealtimeServiceId = serviceId
           const stop = subscribeToRemoteSnapshot(serviceId, (snapshot) => {
-            const normalizedSnapshot = normalizeSnapshot(snapshot)
+            const normalizedSnapshot = mergeOperationalSnapshot(getPersistableSnapshot(get()), snapshot)
             const currentSnapshot = getPersistableSnapshot(get())
-            if (JSON.stringify(currentSnapshot) === JSON.stringify(normalizedSnapshot)) {
+            if (
+              JSON.stringify(getOperationalSnapshot(currentSnapshot)) ===
+              JSON.stringify(getOperationalSnapshot(normalizedSnapshot))
+            ) {
               return
             }
 
@@ -1491,19 +1512,22 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        upsertModifier: (modifier, actor) => {
-          const exists = get().modifiers.some((entry) => entry.id === modifier.id)
+        upsertModifier: async (modifier, actor) => {
+          const persistedModifier = await persistModifierToSupabase(modifier)
+          const nextModifier = persistedModifier ?? modifier
+          const exists = get().modifiers.some((entry) => entry.id === nextModifier.id)
           commit((current) => ({
             modifiers: exists
-              ? current.modifiers.map((entry) => (entry.id === modifier.id ? modifier : entry))
-              : [...current.modifiers, modifier],
+              ? current.modifiers.map((entry) => (entry.id === nextModifier.id ? nextModifier : entry))
+              : [...current.modifiers, nextModifier],
             activityLog: [
-              createActivity('modifier_updated', actor, `${exists ? 'Updated' : 'Created'} modifier ${modifier.name}.`),
+              createActivity('modifier_updated', actor, `${exists ? 'Updated' : 'Created'} modifier ${nextModifier.name}.`),
               ...current.activityLog,
             ],
           }))
         },
-        deleteModifier: (modifierId, actor) => {
+        deleteModifier: async (modifierId, actor) => {
+          await deleteModifierFromSupabase(modifierId)
           commit((current) => ({
             modifiers: current.modifiers.filter((entry) => entry.id !== modifierId),
             activityLog: [
@@ -1547,7 +1571,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             .orders.filter((entry) => entry.status !== 'completed' && entry.pagerNumber)
             .map((entry) => entry.pagerNumber as number),
         resetDemo: () => {
-          commit(() => ({ ...createDemoState() }))
+          commit(() => ({ ...getInitialState() }))
         },
       }
     },
@@ -1558,6 +1582,10 @@ export const usePizzaOpsStore = create<StoreState>()(
           ...currentState,
           ...(persistedState as Partial<StoreState>),
         } as StoreState
+
+        for (const key of CANONICAL_MASTER_DATA_KEYS) {
+          ;(mergedState as Record<string, unknown>)[key] = currentState[key]
+        }
 
         return {
           ...mergedState,
@@ -1570,12 +1598,8 @@ export const usePizzaOpsStore = create<StoreState>()(
         locations: state.locations,
         serviceLocations: state.serviceLocations,
         branding: state.branding,
-        ingredients: state.ingredients,
-        menuItems: state.menuItems,
-        recipes: state.recipes,
         inventory: state.inventory,
         inventoryDefaults: state.inventoryDefaults,
-        modifiers: state.modifiers,
         discountCodes: state.discountCodes,
         discountCodeRedemptions: state.discountCodeRedemptions,
         customers: state.customers,

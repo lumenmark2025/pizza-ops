@@ -70,6 +70,41 @@
       "foreign_keys": null
     },
     {
+      "table_name": "modifiers",
+      "primary_key": ["id"],
+      "columns": [
+        {"name": "id", "type": "text", "default": null, "nullable": "NO"},
+        {"name": "name", "type": "text", "default": null, "nullable": "NO"},
+        {"name": "price_delta", "type": "numeric", "default": "0", "nullable": "NO"},
+        {"name": "stock_ingredient_id", "type": "uuid", "default": null, "nullable": "YES"},
+        {"name": "stock_quantity", "type": "numeric", "default": "0", "nullable": "NO"},
+        {"name": "max_per_pizza", "type": "integer", "default": "1", "nullable": "NO"},
+        {"name": "applies_to_all_pizzas", "type": "boolean", "default": "true", "nullable": "NO"}
+      ],
+      "indexes": [
+        {"index_name": "modifiers_pkey", "definition": "CREATE UNIQUE INDEX modifiers_pkey ON public.modifiers USING btree (id)"}
+      ],
+      "foreign_keys": [
+        {"column": "stock_ingredient_id", "references_table": "ingredients", "references_column": "id"}
+      ]
+    },
+    {
+      "table_name": "menu_item_modifiers",
+      "primary_key": ["menu_item_id", "modifier_id"],
+      "columns": [
+        {"name": "menu_item_id", "type": "uuid", "default": null, "nullable": "NO"},
+        {"name": "modifier_id", "type": "text", "default": null, "nullable": "NO"}
+      ],
+      "indexes": [
+        {"index_name": "menu_item_modifiers_pkey", "definition": "CREATE UNIQUE INDEX menu_item_modifiers_pkey ON public.menu_item_modifiers USING btree (menu_item_id, modifier_id)"},
+        {"index_name": "idx_menu_item_modifiers_modifier_id", "definition": "CREATE INDEX idx_menu_item_modifiers_modifier_id ON public.menu_item_modifiers USING btree (modifier_id)"}
+      ],
+      "foreign_keys": [
+        {"column": "menu_item_id", "references_table": "menu_items", "references_column": "id"},
+        {"column": "modifier_id", "references_table": "modifiers", "references_column": "id"}
+      ]
+    },
+    {
       "table_name": "service_inventory",
       "primary_key": ["id"],
       "columns": [

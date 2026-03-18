@@ -89,7 +89,11 @@ create index if not exists idx_menu_item_recipes_ingredient_id
 create table if not exists modifiers (
   id text primary key,
   name text not null,
-  price_delta numeric not null default 0
+  price_delta numeric not null default 0,
+  stock_ingredient_id text references ingredients(id),
+  stock_quantity numeric not null default 0,
+  max_per_pizza integer not null default 1,
+  applies_to_all_pizzas boolean not null default true
 );
 
 create table if not exists menu_item_modifiers (
@@ -97,6 +101,9 @@ create table if not exists menu_item_modifiers (
   modifier_id text references modifiers(id),
   primary key (menu_item_id, modifier_id)
 );
+
+create index if not exists idx_menu_item_modifiers_modifier_id
+  on menu_item_modifiers (modifier_id);
 
 create table if not exists discount_codes (
   id uuid primary key default gen_random_uuid(),

@@ -42,6 +42,21 @@ type RecipeRow = {
   affects_availability?: boolean | null
 }
 
+type ModifierRow = {
+  id: string
+  name: string
+  price_delta?: number | null
+  stock_ingredient_id?: string | null
+  stock_quantity?: number | null
+  max_per_pizza?: number | null
+  applies_to_all_pizzas?: boolean | null
+}
+
+type MenuItemModifierRow = {
+  menu_item_id: string
+  modifier_id: string
+}
+
 type MasterDataPatch = Pick<
   ServiceSnapshot,
   'ingredients' | 'menuItems' | 'recipes' | 'inventory' | 'inventoryDefaults' | 'modifiers' | 'orders' | 'discountCodes'
@@ -49,6 +64,10 @@ type MasterDataPatch = Pick<
 
 function isMissingIngredientThresholdColumn(error: { code?: string; message?: string } | null | undefined) {
   return error?.code === 'PGRST204' && error.message?.includes('low_stock_threshold')
+}
+
+function isMissingModifierColumn(error: { code?: string; message?: string } | null | undefined) {
+  return error?.code === 'PGRST204'
 }
 
 function formatPersistError(
@@ -99,6 +118,23 @@ async function selectIngredientRows() {
   return fallback as { data: IngredientRow[] | null; error: typeof fallback.error }
 }
 
+async function selectModifierRows() {
+  if (!supabase) {
+    return { data: null as ModifierRow[] | null, error: null }
+  }
+
+  const withExtendedColumns = await supabase
+    .from('modifiers')
+    .select('id, name, price_delta, stock_ingredient_id, stock_quantity, max_per_pizza, applies_to_all_pizzas')
+
+  if (!isMissingModifierColumn(withExtendedColumns.error)) {
+    return withExtendedColumns as { data: ModifierRow[] | null; error: typeof withExtendedColumns.error }
+  }
+
+  const fallback = await supabase.from('modifiers').select('id, name, price_delta')
+  return fallback as { data: ModifierRow[] | null; error: typeof fallback.error }
+}
+
 function isUuid(value?: string | null) {
   return typeof value === 'string'
     ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -116,6 +152,23 @@ function mapIngredientRow(row: IngredientRow, existing: Ingredient | undefined):
     unit: row.unit,
     lowStockThreshold: Number(row.low_stock_threshold ?? existing?.lowStockThreshold ?? 0),
     active: row.active ?? true,
+  }
+}
+
+function mapModifierRow(
+  row: ModifierRow,
+  menuItemIds: string[],
+  existing: Modifier | undefined,
+): Modifier {
+  return {
+    id: row.id,
+    name: row.name,
+    priceDelta: Number(row.price_delta ?? 0),
+    stockIngredientId: row.stock_ingredient_id ?? existing?.stockIngredientId ?? null,
+    stockQuantity: Number(row.stock_quantity ?? existing?.stockQuantity ?? 0),
+    maxPerPizza: Number(row.max_per_pizza ?? existing?.maxPerPizza ?? 1),
+    menuItemIds,
+    appliesToAllPizzas: row.applies_to_all_pizzas ?? existing?.appliesToAllPizzas ?? (menuItemIds.length === 0),
   }
 }
 
@@ -298,6 +351,94 @@ export async function persistMenuItemRecipesToSupabase(
   }))
 }
 
+export async function persistModifierToSupabase(modifier: Modifier): Promise<Modifier | null> {
+  if (!supabase) {
+    throw new Error('Supabase client is not configured for modifier writes.')
+  }
+
+  const payload = {
+    id: modifier.id,
+    name: modifier.name.trim(),
+    price_delta: Number(modifier.priceDelta ?? 0),
+    stock_ingredient_id: modifier.stockIngredientId ?? null,
+    stock_quantity: Number(modifier.stockQuantity ?? 0),
+    max_per_pizza: Number(modifier.maxPerPizza ?? 1),
+    applies_to_all_pizzas: modifier.appliesToAllPizzas !== false,
+  }
+
+  const primary = await supabase
+    .from('modifiers')
+    .upsert(payload)
+    .select('id, name, price_delta, stock_ingredient_id, stock_quantity, max_per_pizza, applies_to_all_pizzas')
+    .single()
+
+  const persistedModifier =
+    primary.error && isMissingModifierColumn(primary.error)
+      ? await supabase.from('modifiers').upsert({
+          id: modifier.id,
+          name: modifier.name.trim(),
+          price_delta: Number(modifier.priceDelta ?? 0),
+        }).select('id, name, price_delta').single()
+      : primary
+
+  if (persistedModifier.error || !persistedModifier.data) {
+    throw new Error(formatPersistError('modifiers upsert', persistedModifier.error))
+  }
+
+  const { error: deleteLinksError } = await supabase
+    .from('menu_item_modifiers')
+    .delete()
+    .eq('modifier_id', modifier.id)
+
+  if (deleteLinksError) {
+    throw new Error(formatPersistError('menu_item_modifiers delete', deleteLinksError))
+  }
+
+  const menuItemIds =
+    modifier.appliesToAllPizzas === false
+      ? Array.from(new Set(modifier.menuItemIds.filter(Boolean)))
+      : []
+
+  if (menuItemIds.length) {
+    const { error: insertLinksError } = await supabase.from('menu_item_modifiers').insert(
+      menuItemIds.map((menuItemId) => ({
+        menu_item_id: menuItemId,
+        modifier_id: modifier.id,
+      })),
+    )
+
+    if (insertLinksError) {
+      throw new Error(formatPersistError('menu_item_modifiers insert', insertLinksError))
+    }
+  }
+
+  return mapModifierRow(persistedModifier.data as ModifierRow, menuItemIds, modifier)
+}
+
+export async function deleteModifierFromSupabase(modifierId: string): Promise<void> {
+  if (!supabase) {
+    throw new Error('Supabase client is not configured for modifier deletes.')
+  }
+
+  const { error: deleteLinksError } = await supabase
+    .from('menu_item_modifiers')
+    .delete()
+    .eq('modifier_id', modifierId)
+
+  if (deleteLinksError) {
+    throw new Error(formatPersistError('menu_item_modifiers delete', deleteLinksError))
+  }
+
+  const { error: deleteModifierError } = await supabase
+    .from('modifiers')
+    .delete()
+    .eq('id', modifierId)
+
+  if (deleteModifierError) {
+    throw new Error(formatPersistError('modifiers delete', deleteModifierError))
+  }
+}
+
 export async function loadMasterDataFromSupabase(
   existingSnapshot: Pick<ServiceSnapshot, 'ingredients' | 'inventory' | 'inventoryDefaults' | 'modifiers' | 'orders' | 'discountCodes'>,
 ): Promise<MasterDataPatch | null> {
@@ -305,19 +446,33 @@ export async function loadMasterDataFromSupabase(
     return null
   }
 
-  const [ingredientResult, { data: menuItemRows, error: menuItemError }, { data: recipeRows, error: recipeError }] =
-    await Promise.all([
-      selectIngredientRows(),
-      supabase.from('menu_items').select(
-        'id, name, category, category_slug, description, base_price_pence, sort_order, chilli_rating, image_url, active, loyverse_item_id',
-      ),
-      supabase.from('menu_item_recipes').select('id, menu_item_id, ingredient_id, quantity, affects_availability'),
-    ])
+  const [
+    ingredientResult,
+    { data: menuItemRows, error: menuItemError },
+    { data: recipeRows, error: recipeError },
+    modifierResult,
+    { data: menuItemModifierRows, error: menuItemModifierError },
+  ] = await Promise.all([
+    selectIngredientRows(),
+    supabase.from('menu_items').select(
+      'id, name, category, category_slug, description, base_price_pence, sort_order, chilli_rating, image_url, active, loyverse_item_id',
+    ),
+    supabase.from('menu_item_recipes').select('id, menu_item_id, ingredient_id, quantity, affects_availability'),
+    selectModifierRows(),
+    supabase.from('menu_item_modifiers').select('menu_item_id, modifier_id'),
+  ])
 
   const { data: ingredientRows, error: ingredientError } = ingredientResult
+  const { data: modifierRows, error: modifierError } = modifierResult
 
-  if (ingredientError || menuItemError || recipeError) {
-    console.error('loadMasterDataFromSupabase error', { ingredientError, menuItemError, recipeError })
+  if (ingredientError || menuItemError || recipeError || modifierError || menuItemModifierError) {
+    console.error('loadMasterDataFromSupabase error', {
+      ingredientError,
+      menuItemError,
+      recipeError,
+      modifierError,
+      menuItemModifierError,
+    })
     return null
   }
 
@@ -335,6 +490,19 @@ export async function loadMasterDataFromSupabase(
     quantity: Number(row.quantity),
     affectsAvailability: row.affects_availability !== false,
   }))
+  const modifierLinksById = new Map<string, string[]>()
+  for (const row of (menuItemModifierRows ?? []) as MenuItemModifierRow[]) {
+    const currentMenuItemIds = modifierLinksById.get(row.modifier_id) ?? []
+    currentMenuItemIds.push(row.menu_item_id)
+    modifierLinksById.set(row.modifier_id, currentMenuItemIds)
+  }
+  const modifiers = ((modifierRows ?? []) as ModifierRow[]).map((row) =>
+    mapModifierRow(
+      row,
+      modifierLinksById.get(row.id) ?? [],
+      existingSnapshot.modifiers.find((entry) => entry.id === row.id),
+    ),
+  )
 
   return {
     ingredients,
@@ -342,7 +510,7 @@ export async function loadMasterDataFromSupabase(
     recipes,
     inventory: existingSnapshot.inventory,
     inventoryDefaults: existingSnapshot.inventoryDefaults,
-    modifiers: existingSnapshot.modifiers,
+    modifiers,
     orders: existingSnapshot.orders,
     discountCodes: existingSnapshot.discountCodes,
   }

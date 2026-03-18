@@ -27,6 +27,7 @@ export function ModifiersAdminPage() {
   const upsertModifier = usePizzaOpsStore((state) => state.upsertModifier)
   const deleteModifier = usePizzaOpsStore((state) => state.deleteModifier)
   const [modifierDraft, setModifierDraft] = useState<Modifier>(emptyModifier())
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   return (
     <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
@@ -88,8 +89,15 @@ export function ModifiersAdminPage() {
           </div>
           <div className="flex gap-2">
             <Button onClick={() => {
-              upsertModifier(modifierDraft, 'manager')
-              setModifierDraft(emptyModifier())
+              void (async () => {
+                try {
+                  setSaveError(null)
+                  await upsertModifier(modifierDraft, 'manager')
+                  setModifierDraft(emptyModifier())
+                } catch (error) {
+                  setSaveError(error instanceof Error ? error.message : 'Modifier save failed.')
+                }
+              })()
             }}>
               Save modifier
             </Button>
@@ -97,6 +105,7 @@ export function ModifiersAdminPage() {
               Clear form
             </Button>
           </div>
+          {saveError ? <p className="text-sm font-medium text-rose-600">{saveError}</p> : null}
         </div>
       </Card>
 
@@ -129,7 +138,16 @@ export function ModifiersAdminPage() {
                     <Button size="sm" variant="outline" onClick={() => setModifierDraft(modifier)}>
                       Edit
                     </Button>
-                    <Button size="sm" variant="danger" onClick={() => deleteModifier(modifier.id, 'manager')}>
+                    <Button size="sm" variant="danger" onClick={() => {
+                      void (async () => {
+                        try {
+                          setSaveError(null)
+                          await deleteModifier(modifier.id, 'manager')
+                        } catch (error) {
+                          setSaveError(error instanceof Error ? error.message : 'Modifier delete failed.')
+                        }
+                      })()
+                    }}>
                       Delete
                     </Button>
                   </div>
