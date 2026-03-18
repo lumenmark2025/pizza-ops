@@ -14,7 +14,7 @@ import {
   normalizeMenuItem,
   sortMenuItems,
 } from '../lib/menu'
-import { supabaseUrl } from '../lib/supabase'
+import { supabaseConfigError, supabaseUrl } from '../lib/supabase'
 import { currency } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { MenuItem, MenuItemRecipe } from '../types/domain'
@@ -249,6 +249,9 @@ export function MenuAdminPage() {
           <p className="mt-2 text-sm text-slate-500">
             Manage customer-facing categories, chilli ratings, imagery, pricing, and recipe rows in one place.
           </p>
+          {supabaseConfigError ? (
+            <p className="mt-4 text-sm font-medium text-rose-600">{supabaseConfigError}</p>
+          ) : null}
         </Card>
 
         <Card className="p-5 sm:p-6">

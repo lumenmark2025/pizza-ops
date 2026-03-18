@@ -3,6 +3,7 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
+import { supabaseConfigError } from '../lib/supabase'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { Ingredient } from '../types/domain'
 
@@ -90,6 +91,9 @@ export function IngredientsAdminPage() {
             New ingredient
           </Button>
         </div>
+        {supabaseConfigError ? (
+          <p className="mt-4 text-sm font-medium text-rose-600">{supabaseConfigError}</p>
+        ) : null}
         <div className="mt-6 grid gap-3">
           <div className="flex items-center gap-2">
             <Badge variant={editingIngredientId ? 'blue' : 'slate'}>

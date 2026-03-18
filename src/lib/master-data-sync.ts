@@ -9,7 +9,7 @@ import type {
   ServiceSnapshot,
 } from '../types/domain'
 import { normalizeMenuItem, resolveMenuCategorySlug } from './menu'
-import { supabase, supabaseUrl } from './supabase'
+import { getSupabaseClientError, supabase, supabaseConfigError, supabaseUrl } from './supabase'
 
 type IngredientRow = {
   id: string
@@ -174,7 +174,7 @@ function mapModifierRow(
 
 export async function persistIngredientToSupabase(ingredient: Ingredient): Promise<Ingredient | null> {
   if (!supabase) {
-    throw new Error('Supabase client is not configured for ingredient writes.')
+    throw new Error(getSupabaseClientError('Ingredient write'))
   }
 
   const payload = {
@@ -221,7 +221,7 @@ export async function persistIngredientToSupabase(ingredient: Ingredient): Promi
 
 export async function persistMenuItemToSupabase(menuItem: MenuItem): Promise<MenuItem | null> {
   if (!supabase) {
-    throw new Error('Supabase client is not configured for menu item writes.')
+    throw new Error(getSupabaseClientError('Menu item write'))
   }
 
   const normalized = normalizeMenuItem(menuItem)
@@ -277,7 +277,7 @@ export async function persistMenuItemRecipesToSupabase(
   recipeRows: MenuItemRecipe[],
 ): Promise<MenuItemRecipe[] | null> {
   if (!supabase) {
-    throw new Error('Supabase client is not configured for recipe writes.')
+    throw new Error(getSupabaseClientError('Recipe write'))
   }
 
   console.info('[menu-save] menu_item_recipes replace start', {
@@ -353,7 +353,7 @@ export async function persistMenuItemRecipesToSupabase(
 
 export async function persistModifierToSupabase(modifier: Modifier): Promise<Modifier | null> {
   if (!supabase) {
-    throw new Error('Supabase client is not configured for modifier writes.')
+    throw new Error(getSupabaseClientError('Modifier write'))
   }
 
   const payload = {
@@ -417,7 +417,7 @@ export async function persistModifierToSupabase(modifier: Modifier): Promise<Mod
 
 export async function deleteModifierFromSupabase(modifierId: string): Promise<void> {
   if (!supabase) {
-    throw new Error('Supabase client is not configured for modifier deletes.')
+    throw new Error(getSupabaseClientError('Modifier delete'))
   }
 
   const { error: deleteLinksError } = await supabase
@@ -443,6 +443,9 @@ export async function loadMasterDataFromSupabase(
   existingSnapshot: Pick<ServiceSnapshot, 'ingredients' | 'inventory' | 'inventoryDefaults' | 'modifiers' | 'orders' | 'discountCodes'>,
 ): Promise<MasterDataPatch | null> {
   if (!supabase) {
+    if (supabaseConfigError) {
+      console.error('loadMasterDataFromSupabase unavailable', supabaseConfigError)
+    }
     return null
   }
 
