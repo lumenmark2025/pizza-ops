@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
+import { LoaderCircle } from 'lucide-react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Card } from './components/ui/card'
 import {
   CustomerCheckoutPage,
   CustomerLocationPage,
@@ -13,7 +15,7 @@ import { IngredientsAdminPage } from './features/ingredient-management'
 import { LocationEditPage, LocationNewPage, LocationsListPage } from './features/location-management'
 import { MenuAdminPage } from './features/menu-management'
 import { ModifiersAdminPage } from './features/modifier-management'
-import { ExpeditorPage, KdsPage, PaymentPage, CustomerBoardPage } from './features/ops-views'
+import { ExpeditorPage, Kds2Page, KdsPage, PaymentPage, CustomerBoardPage } from './features/ops-views'
 import { OrderEntryPage } from './features/operator-order-entry'
 import { AppShell } from './features/operator-shell'
 import { ServiceEditPage, ServiceNewPage, ServicesListPage } from './features/service-management'
@@ -23,7 +25,10 @@ import { usePizzaOpsStore } from './store/usePizzaOpsStore'
 function App() {
   const location = useLocation()
   const setOnlineStatus = usePizzaOpsStore((state) => state.setOnlineStatus)
+  const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
   const bootstrapStartedRef = useRef(false)
+  const standaloneDisplayRoutes = new Set(['/kds', '/kds-2', '/board'])
+  const isStandaloneDisplayRoute = standaloneDisplayRoutes.has(location.pathname)
 
   useEffect(() => {
     const onOnline = () => setOnlineStatus(true)
@@ -70,6 +75,7 @@ function App() {
       <Route path="/order/checkout" element={<CustomerCheckoutPage />} />
       <Route path="/order/confirmation/:orderId" element={<CustomerOrderConfirmationPage />} />
       <Route path="/kds" element={<KdsPage />} />
+      <Route path="/kds-2" element={<Kds2Page />} />
       <Route path="/expeditor" element={<ExpeditorPage />} />
       <Route path="/board" element={<CustomerBoardPage />} />
       <Route path="/admin" element={<AdminPage />} />
@@ -88,7 +94,18 @@ function App() {
     </Routes>
   )
 
-  return location.pathname.startsWith('/order') ? routes : <AppShell>{routes}</AppShell>
+  if (isStandaloneDisplayRoute && !remoteReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
+        <Card className="flex items-center gap-3 border-white/10 bg-white/10 px-5 py-4 text-white">
+          <LoaderCircle className="h-5 w-5 animate-spin text-orange-300" />
+          <span className="font-medium">Loading display state…</span>
+        </Card>
+      </div>
+    )
+  }
+
+  return location.pathname.startsWith('/order') || isStandaloneDisplayRoute ? routes : <AppShell>{routes}</AppShell>
 }
 
 export default App

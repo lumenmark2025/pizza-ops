@@ -75,7 +75,8 @@ type StoreState = ServiceSnapshot & {
   createOrder: (input: CreateOrderInput) => { ok: true; orderId: string; paymentId?: string } | { ok: false; error: string }
   setOnlineStatus: (status: boolean) => void
   updateOrderStatus: (orderId: string, nextStatus: OrderStatus) => void
-  updateOrderItemProgress: (orderId: string, itemId: string) => void
+  updateOrderItemProgress: (orderId: string, itemId: string, direction?: 'forward' | 'backward') => void
+  recallCompletedOrder: (orderId?: string) => { ok: boolean; error?: string }
   moveOrder: (orderId: string, promisedTime: string, reason: string, override: boolean) => { ok: boolean; warning?: string }
   addDelay: (minutes: number, actor: string, reason: string) => void
   pauseService: (minutes: number, actor: string, reason: string) => void
@@ -148,6 +149,8 @@ const statusTimestampField: Record<OrderStatus, keyof Order['timestamps']> = {
   ready: 'ready_at',
   completed: 'completed_at',
 }
+
+const activeKdsStatuses: OrderStatus[] = ['taken', 'prepping', 'in_oven', 'ready']
 
 function randomId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
@@ -229,6 +232,30 @@ function shiftOrder(order: Order, minutes: number) {
       slotTime: addMinutes(allocation.slotTime, minutes),
     })),
   }
+}
+
+function getRecallTargetStatus(order: Order, history: ServiceSnapshot['history']) {
+  const latestCompletion = history.find(
+    (entry) => entry.orderId === order.id && entry.toStatus === 'completed',
+  )
+
+  if (latestCompletion?.fromStatus && activeKdsStatuses.includes(latestCompletion.fromStatus)) {
+    return latestCompletion.fromStatus
+  }
+
+  if (order.timestamps.ready_at) {
+    return 'ready'
+  }
+
+  if (order.timestamps.in_oven_at) {
+    return 'in_oven'
+  }
+
+  if (order.timestamps.prepping_at) {
+    return 'prepping'
+  }
+
+  return 'taken'
 }
 
 function createDemoState(): ServiceSnapshot {
@@ -978,18 +1005,17 @@ export const usePizzaOpsStore = create<StoreState>()(
           }
 
           const now = toIsoNow()
+          const nextOrder = {
+            ...order,
+            status: nextStatus,
+            timestamps: {
+              ...order.timestamps,
+              [statusTimestampField[nextStatus]]: now,
+            },
+          }
           commit((current) => ({
             orders: current.orders.map((entry) =>
-              entry.id === orderId
-                ? {
-                    ...entry,
-                    status: nextStatus,
-                    timestamps: {
-                      ...entry.timestamps,
-                      [statusTimestampField[nextStatus]]: now,
-                    },
-                  }
-                : entry,
+              entry.id === orderId ? nextOrder : entry,
             ),
             history: [
               {
@@ -1007,8 +1033,9 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+          void mirrorOrderToSupabase(nextOrder)
         },
-        updateOrderItemProgress: (orderId, itemId) => {
+        updateOrderItemProgress: (orderId, itemId, direction = 'forward') => {
           const state = get()
           const order = state.orders.find((entry) => entry.id === orderId)
           const item = order?.items.find((entry) => entry.id === itemId)
@@ -1016,7 +1043,15 @@ export const usePizzaOpsStore = create<StoreState>()(
             return
           }
 
-          const nextProgress = Math.min((item.progressCount ?? 0) + 1, item.quantity)
+          const currentProgress = item.progressCount ?? 0
+          const nextProgress =
+            direction === 'backward'
+              ? Math.max(currentProgress - 1, 0)
+              : Math.min(currentProgress + 1, item.quantity)
+          if (nextProgress === currentProgress) {
+            return
+          }
+
           commit((current) => ({
             orders: current.orders.map((entry) =>
               entry.id === orderId
@@ -1029,10 +1064,77 @@ export const usePizzaOpsStore = create<StoreState>()(
                 : entry,
             ),
             activityLog: [
-              createActivity('item_progressed', 'kds', `${order.reference} item progress ${nextProgress}/${item.quantity}.`, orderId),
+              createActivity(
+                'item_progressed',
+                'kds',
+                `${order.reference} item progress ${nextProgress}/${item.quantity}.`,
+                orderId,
+              ),
               ...current.activityLog,
             ],
           }))
+        },
+        recallCompletedOrder: (orderId) => {
+          const state = get()
+          const targetOrder =
+            (orderId
+              ? state.orders.find((entry) => entry.id === orderId)
+              : state.orders
+                  .filter((entry) => entry.status === 'completed')
+                  .sort(
+                    (left, right) =>
+                      new Date(right.timestamps.completed_at ?? right.createdAt).getTime() -
+                      new Date(left.timestamps.completed_at ?? left.createdAt).getTime(),
+                  )[0]) ?? null
+
+          if (!targetOrder) {
+            return { ok: false, error: 'No completed order available to recall.' }
+          }
+
+          if (targetOrder.status !== 'completed') {
+            return { ok: false, error: 'Order is not completed.' }
+          }
+
+          const nextStatus = getRecallTargetStatus(targetOrder, state.history)
+          const now = toIsoNow()
+          const recalledOrder = {
+            ...targetOrder,
+            status: nextStatus,
+            timestamps: {
+              ...targetOrder.timestamps,
+              completed_at: null,
+              [statusTimestampField[nextStatus]]: targetOrder.timestamps[statusTimestampField[nextStatus]] ?? now,
+            },
+          }
+
+          commit((current) => ({
+            orders: current.orders.map((entry) =>
+              entry.id === targetOrder.id ? recalledOrder : entry,
+            ),
+            history: [
+              {
+                id: randomId('hist'),
+                orderId: targetOrder.id,
+                fromStatus: 'completed',
+                toStatus: nextStatus,
+                changedAt: now,
+                changedBy: 'kds_recall',
+                note: 'Recalled from completed.',
+              },
+              ...current.history,
+            ],
+            activityLog: [
+              createActivity(
+                'status_changed',
+                'kds_recall',
+                `${targetOrder.reference} recalled to ${nextStatus}.`,
+                targetOrder.id,
+              ),
+              ...current.activityLog,
+            ],
+          }))
+          void mirrorOrderToSupabase(recalledOrder)
+          return { ok: true }
         },
         moveOrder: (orderId, promisedTime, reason, override) => {
           const state = get()
