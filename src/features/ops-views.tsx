@@ -413,6 +413,9 @@ function KdsQueuePanel({
 }
 
 function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
+  const service = usePizzaOpsStore((state) => state.service)
+  const isOnline = usePizzaOpsStore((state) => state.isOnline)
+  const realtimeStatus = usePizzaOpsStore((state) => state.realtimeStatus)
   const orders = usePizzaOpsStore((state) => state.orders)
   const customers = usePizzaOpsStore((state) => state.customers)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
@@ -471,6 +474,18 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
                 <p className="text-base font-bold leading-none">{activeOrders.length}</p>
               </div>
             </div>
+          </Card>
+          <Card className="rounded-md border-white/10 bg-white/10 px-3 py-2 text-white shadow-none">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+              Service
+            </p>
+            <p className="mt-1 text-sm font-semibold">{service.name}</p>
+            <p className="mt-1 text-[11px] text-slate-300">
+              {service.locationName} · {service.date} · {service.id}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-300">
+              {isOnline ? 'online' : 'offline'} / {realtimeStatus}
+            </p>
           </Card>
           {variant === 'queue' ? (
             <Button
@@ -613,6 +628,9 @@ export function ExpeditorPage() {
 }
 
 export function CustomerBoardPage() {
+  const service = usePizzaOpsStore((state) => state.service)
+  const isOnline = usePizzaOpsStore((state) => state.isOnline)
+  const realtimeStatus = usePizzaOpsStore((state) => state.realtimeStatus)
   const orders = usePizzaOpsStore((state) => state.orders)
   const customers = usePizzaOpsStore((state) => state.customers)
   const grouped: Record<'taken' | 'prepping' | 'in_oven' | 'ready', Order[]> = {
@@ -623,7 +641,24 @@ export function CustomerBoardPage() {
   }
 
   return (
-    <DisplayShell eyebrow="Customer Board" title="Live Collection Board">
+    <DisplayShell
+      eyebrow="Customer Board"
+      title="Live Collection Board"
+      actions={
+        <Card className="rounded-md border-white/10 bg-white/10 px-3 py-2 text-white shadow-none">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+            Service
+          </p>
+          <p className="mt-1 text-sm font-semibold">{service.name}</p>
+          <p className="mt-1 text-[11px] text-slate-300">
+            {service.locationName} · {service.date} · {service.id}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-300">
+            {isOnline ? 'online' : 'offline'} / {realtimeStatus}
+          </p>
+        </Card>
+      }
+    >
       <div className="grid gap-4 lg:grid-cols-4">
         {BOARD_STATUSES.map((status) => (
           <Card key={status} className={cn('min-h-[24rem] p-4 sm:p-5', statusStyles[status].card)}>

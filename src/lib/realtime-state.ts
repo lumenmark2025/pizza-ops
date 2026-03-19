@@ -50,6 +50,7 @@ export async function persistRemoteSnapshot(snapshot: ServiceSnapshot) {
 export function subscribeToRemoteSnapshot(
   serviceId: string,
   onSnapshot: (snapshot: ServiceSnapshot) => void,
+  onStatus?: (status: string) => void,
 ) {
   if (!supabase) {
     return null
@@ -75,7 +76,9 @@ export function subscribeToRemoteSnapshot(
         }
       },
     )
-    .subscribe()
+    .subscribe((status) => {
+      onStatus?.(status)
+    })
 
   return () => {
     if (supabase) {

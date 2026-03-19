@@ -70,6 +70,8 @@ type CreateOrderInput = {
 type StoreState = ServiceSnapshot & {
   isOnline: boolean
   remoteReady: boolean
+  realtimeStatus: 'idle' | 'connecting' | 'subscribed' | 'error'
+  lastRemoteSyncAt: string | null
   masterDataLoadError: string | null
   masterDataLoadWarnings: string[]
   createOrder: (input: CreateOrderInput) => { ok: true; orderId: string; paymentId?: string } | { ok: false; error: string }
@@ -139,6 +141,7 @@ const CANONICAL_MASTER_DATA_KEYS = ['ingredients', 'menuItems', 'recipes', 'modi
 let applyingRemoteSnapshot = false
 let stopRealtimeSubscription: null | (() => void) = null
 let hydrateRemotePromise: Promise<void> | null = null
+let hydrateRemoteServiceId: string | null = null
 let activeRealtimeServiceId: string | null = null
 let snapshotPersistTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -208,6 +211,27 @@ function getOperationalSnapshot(state: ServiceSnapshot): ServiceSnapshot {
   }
 
   return snapshot
+}
+
+function getBlankOperationalState(snapshot: ServiceSnapshot, serviceId: string): ServiceSnapshot {
+  const targetService = snapshot.services.find((entry) => entry.id === serviceId) ?? snapshot.service
+
+  return normalizeSnapshot({
+    ...snapshot,
+    service: {
+      ...targetService,
+      delayMinutes: targetService.delayMinutes ?? 0,
+      pausedUntil: targetService.pausedUntil ?? null,
+      pauseReason: targetService.pauseReason ?? null,
+    },
+    inventory: [],
+    customers: [],
+    orders: [],
+    history: [],
+    payments: [],
+    loyverseQueue: [],
+    activityLog: [],
+  })
 }
 
 function mergeOperationalSnapshot(current: ServiceSnapshot, runtimeSnapshot: ServiceSnapshot): ServiceSnapshot {
@@ -457,28 +481,80 @@ function createDemoState(): ServiceSnapshot {
   }
 }
 
-async function mirrorOrderToSupabase(order: Order) {
+async function mirrorOrderToSupabase(order: Order, serviceId: string) {
   if (SAFE_MODE || !supabase) {
     return
   }
 
   await supabase.from('orders').upsert({
     id: order.id,
+    service_id: serviceId,
     customer_id: order.customerId,
     customer_name: order.customerName,
     customer_mobile: order.customerMobile,
     customer_email: order.customerEmail,
     auth_user_id: order.authUserId,
     reference: order.reference,
+    source: order.source,
     status: order.status,
     promised_time: order.promisedTime,
+    pizza_count: order.pizzaCount,
+    subtotal_amount: order.subtotalAmount ?? 0,
+    total_discount_amount: order.totalDiscountAmount ?? 0,
+    order_discount_amount: order.orderDiscountAmount ?? 0,
     total_amount: order.totalAmount,
+    applied_discount_code_id: order.appliedDiscountCodeId ?? null,
+    applied_discount_summary: order.appliedDiscountSummary ?? null,
+    pricing_summary: order.pricingSummary ?? null,
     payment_status: order.paymentStatus,
+    payment_method: order.paymentMethod,
     pager_number: order.pagerNumber,
     receipt_email_status: order.receiptEmailStatus,
     receipt_sent_at: order.receiptSentAt,
     receipt_last_error: order.receiptLastError,
+    loyverse_sync_status: order.loyaltySyncStatus,
+    notes: order.notes ?? null,
+    created_at: order.createdAt,
+    taken_at: order.timestamps.taken_at,
+    prepping_at: order.timestamps.prepping_at,
+    in_oven_at: order.timestamps.in_oven_at,
+    ready_at: order.timestamps.ready_at,
+    completed_at: order.timestamps.completed_at,
   })
+
+  await supabase.from('order_items').upsert(
+    order.items.map((item) => ({
+      id: item.id,
+      order_id: order.id,
+      menu_item_id: item.menuItemId,
+      quantity: item.quantity,
+      original_unit_price: item.originalUnitPrice ?? null,
+      item_discount_amount: item.itemDiscountAmount ?? 0,
+      final_unit_price: item.finalUnitPrice ?? null,
+      applied_discount_summary: item.appliedDiscountSummary ?? null,
+      progress_count: item.progressCount ?? 0,
+      notes: item.notes ?? null,
+    })),
+  )
+
+  await supabase.from('order_item_modifiers').delete().in(
+    'order_item_id',
+    order.items.map((item) => item.id),
+  )
+
+  const modifierRows = order.items.flatMap((item) =>
+    (item.modifiers ?? []).map((modifier) => ({
+      order_item_id: item.id,
+      modifier_id: modifier.modifierId,
+      modifier_name: modifier.name,
+      price_delta: modifier.priceDelta,
+      quantity: modifier.quantity,
+    })),
+  )
+
+  if (modifierRows.length) {
+    await supabase.from('order_item_modifiers').insert(modifierRows)
+  }
 }
 
 function queueSnapshotSync(snapshot: ServiceSnapshot) {
@@ -659,6 +735,8 @@ export const usePizzaOpsStore = create<StoreState>()(
         ...getInitialState(),
         isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
         remoteReady: SAFE_MODE,
+        realtimeStatus: SAFE_MODE ? 'idle' : 'connecting',
+        lastRemoteSyncAt: null,
         masterDataLoadError: null,
         masterDataLoadWarnings: [],
         setOnlineStatus: (status) => set({ isOnline: status }),
@@ -669,10 +747,12 @@ export const usePizzaOpsStore = create<StoreState>()(
             return
           }
 
-          if (hydrateRemotePromise) {
+          const serviceId = get().service.id
+          if (hydrateRemotePromise && hydrateRemoteServiceId === serviceId) {
             return hydrateRemotePromise
           }
 
+          hydrateRemoteServiceId = serviceId
           hydrateRemotePromise = (async () => {
             console.info('[pizza-ops] hydrateRemote invoked')
             await refreshMasterDataFromTables()
@@ -683,27 +763,41 @@ export const usePizzaOpsStore = create<StoreState>()(
             }
 
             const current = getPersistableSnapshot(get())
-            const remote = await loadRemoteSnapshot(current.service.id)
+            const blankState = getBlankOperationalState(current, serviceId)
+            const blankRemoteState = getOperationalSnapshot(blankState)
+            applyingRemoteSnapshot = true
+            set({
+              ...blankState,
+              remoteReady: false,
+              realtimeStatus: 'connecting',
+            })
+            applyingRemoteSnapshot = false
+
+            const remote = await loadRemoteSnapshot(serviceId)
             if (remote) {
               const normalizedRemote = mergeOperationalSnapshot(getPersistableSnapshot(get()), remote)
-              const localSnapshot = getPersistableSnapshot(get())
               const remoteJson = JSON.stringify(getOperationalSnapshot(normalizedRemote))
-              const localJson = JSON.stringify(getOperationalSnapshot(localSnapshot))
+              const localJson = JSON.stringify(blankRemoteState)
 
               if (remoteJson !== localJson) {
                 applyingRemoteSnapshot = true
-                set({ ...normalizedRemote, remoteReady: true })
+                set({
+                  ...normalizedRemote,
+                  remoteReady: true,
+                  lastRemoteSyncAt: toIsoNow(),
+                })
                 applyingRemoteSnapshot = false
               } else {
-                set({ remoteReady: true })
+                set({ ...blankState, remoteReady: true, lastRemoteSyncAt: toIsoNow() })
               }
               return
             }
 
-            await persistRemoteSnapshot(getOperationalSnapshot(current))
-            set({ remoteReady: true })
+            await persistRemoteSnapshot(blankRemoteState)
+            set({ ...blankState, remoteReady: true, lastRemoteSyncAt: toIsoNow() })
           })().finally(() => {
             hydrateRemotePromise = null
+            hydrateRemoteServiceId = null
           })
 
           return hydrateRemotePromise
@@ -725,20 +819,35 @@ export const usePizzaOpsStore = create<StoreState>()(
 
           stopRealtimeSubscription?.()
           activeRealtimeServiceId = serviceId
-          const stop = subscribeToRemoteSnapshot(serviceId, (snapshot) => {
-            const normalizedSnapshot = mergeOperationalSnapshot(getPersistableSnapshot(get()), snapshot)
-            const currentSnapshot = getPersistableSnapshot(get())
-            if (
-              JSON.stringify(getOperationalSnapshot(currentSnapshot)) ===
-              JSON.stringify(getOperationalSnapshot(normalizedSnapshot))
-            ) {
-              return
-            }
+          set({ realtimeStatus: 'connecting' })
+          const stop = subscribeToRemoteSnapshot(
+            serviceId,
+            (snapshot) => {
+              const normalizedSnapshot = mergeOperationalSnapshot(getPersistableSnapshot(get()), snapshot)
+              const currentSnapshot = getPersistableSnapshot(get())
+              if (
+                JSON.stringify(getOperationalSnapshot(currentSnapshot)) ===
+                JSON.stringify(getOperationalSnapshot(normalizedSnapshot))
+              ) {
+                set({ lastRemoteSyncAt: toIsoNow() })
+                return
+              }
 
-            applyingRemoteSnapshot = true
-            set({ ...normalizedSnapshot })
-            applyingRemoteSnapshot = false
-          })
+              applyingRemoteSnapshot = true
+              set({ ...normalizedSnapshot, lastRemoteSyncAt: toIsoNow() })
+              applyingRemoteSnapshot = false
+            },
+            (status) => {
+              set({
+                realtimeStatus:
+                  status === 'SUBSCRIBED'
+                    ? 'subscribed'
+                    : status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED'
+                      ? 'error'
+                      : 'connecting',
+              })
+            },
+          )
           stopRealtimeSubscription = stop
           return () => {
             stop?.()
@@ -746,6 +855,7 @@ export const usePizzaOpsStore = create<StoreState>()(
               activeRealtimeServiceId = null
               stopRealtimeSubscription = null
             }
+            set({ realtimeStatus: 'idle' })
           }
         },
         getAvailableTimes: (items) => {
@@ -989,7 +1099,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             void sendOrderReceipt(order.id)
           }
 
-          void mirrorOrderToSupabase(order)
+          void mirrorOrderToSupabase(order, state.service.id)
 
           return {
             ok: true as const,
@@ -1033,7 +1143,7 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
-          void mirrorOrderToSupabase(nextOrder)
+          void mirrorOrderToSupabase(nextOrder, state.service.id)
         },
         updateOrderItemProgress: (orderId, itemId, direction = 'forward') => {
           const state = get()
@@ -1073,6 +1183,10 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+          const syncedOrder = get().orders.find((entry) => entry.id === orderId)
+          if (syncedOrder) {
+            void mirrorOrderToSupabase(syncedOrder, state.service.id)
+          }
         },
         recallCompletedOrder: (orderId) => {
           const state = get()
@@ -1133,7 +1247,7 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
-          void mirrorOrderToSupabase(recalledOrder)
+          void mirrorOrderToSupabase(recalledOrder, state.service.id)
           return { ok: true }
         },
         moveOrder: (orderId, promisedTime, reason, override) => {
@@ -1166,6 +1280,10 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+          const syncedOrder = get().orders.find((entry) => entry.id === orderId)
+          if (syncedOrder) {
+            void mirrorOrderToSupabase(syncedOrder, state.service.id)
+          }
           return { ok: true, warning: allocation.ok ? undefined : allocation.warning }
         },
         addDelay: (minutes, actor, reason) => {
@@ -1236,6 +1354,10 @@ export const usePizzaOpsStore = create<StoreState>()(
           if (status === 'paid') {
             void sendOrderReceipt(payment.orderId)
           }
+          const syncedOrder = get().orders.find((entry) => entry.id === payment.orderId)
+          if (syncedOrder) {
+            void mirrorOrderToSupabase(syncedOrder, state.service.id)
+          }
         },
         updatePaymentCheckout: (paymentId, updates) => {
           const state = get()
@@ -1265,6 +1387,10 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+          const syncedOrder = get().orders.find((entry) => entry.id === payment.orderId)
+          if (syncedOrder) {
+            void mirrorOrderToSupabase(syncedOrder, state.service.id)
+          }
         },
         retryLoyverseSync: (queueId) => {
           const state = get()
@@ -1676,6 +1802,10 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...state.activityLog,
             ],
           }))
+          const syncedOrder = get().orders.find((entry) => entry.id === orderId)
+          if (syncedOrder) {
+            void mirrorOrderToSupabase(syncedOrder, current.service.id)
+          }
           return { ok: true }
         },
         getActivePagerNumbers: () =>
@@ -1705,21 +1835,13 @@ export const usePizzaOpsStore = create<StoreState>()(
         }
       },
       partialize: (state) => ({
-        service: state.service,
         services: state.services,
         locations: state.locations,
         serviceLocations: state.serviceLocations,
         branding: state.branding,
-        inventory: state.inventory,
         inventoryDefaults: state.inventoryDefaults,
         discountCodes: state.discountCodes,
         discountCodeRedemptions: state.discountCodeRedemptions,
-        customers: state.customers,
-        orders: state.orders,
-        history: state.history,
-        payments: state.payments,
-        loyverseQueue: state.loyverseQueue,
-        activityLog: state.activityLog,
       }),
     },
   ),

@@ -1,5 +1,6 @@
-import type { PropsWithChildren, ComponentType } from 'react'
+import type { ComponentType, PropsWithChildren } from 'react'
 import {
+  ChefHat,
   ClipboardList,
   LoaderCircle,
   MonitorSmartphone,
@@ -11,7 +12,6 @@ import {
   TimerReset,
   Wifi,
   WifiOff,
-  ChefHat,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Card } from '../components/ui/card'
@@ -45,6 +45,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const location = useLocation()
   const isOnline = usePizzaOpsStore((state) => state.isOnline)
   const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
+  const realtimeStatus = usePizzaOpsStore((state) => state.realtimeStatus)
   const orders = usePizzaOpsStore((state) => state.orders)
   const loyverseQueue = usePizzaOpsStore((state) => state.loyverseQueue)
   const service = usePizzaOpsStore((state) => state.service)
@@ -54,7 +55,7 @@ export function AppShell({ children }: PropsWithChildren) {
       <div className="flex min-h-screen items-center justify-center px-4">
         <Card className="flex items-center gap-3 px-5 py-4">
           <LoaderCircle className="h-5 w-5 animate-spin text-orange-500" />
-          <span className="font-medium">Loading service state…</span>
+          <span className="font-medium">Loading service state...</span>
         </Card>
       </div>
     )
@@ -70,15 +71,27 @@ export function AppShell({ children }: PropsWithChildren) {
                 <p className="font-display text-xs uppercase tracking-[0.4em] text-orange-200">
                   Pizza Van Service Ops
                 </p>
-                <h1 className="mt-1 font-display text-3xl font-bold tracking-tight">
-                  {service.name}
-                </h1>
+                <h1 className="mt-1 font-display text-3xl font-bold tracking-tight">{service.name}</h1>
+                <p className="mt-2 text-sm text-slate-300">
+                  {service.locationName} · {service.date} · service {service.id}
+                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <MetricChip icon={ClipboardList} label={`${orders.filter((o) => o.status !== 'completed').length} live orders`} />
-                <MetricChip icon={ReceiptText} label={`${loyverseQueue.filter((q) => q.status === 'failed').length} sync issues`} tone="warn" />
+                <MetricChip icon={ClipboardList} label={`${orders.filter((order) => order.status !== 'completed').length} live orders`} />
+                <MetricChip icon={ReceiptText} label={`${loyverseQueue.filter((entry) => entry.status === 'failed').length} sync issues`} tone="warn" />
                 <MetricChip icon={isOnline ? Wifi : WifiOff} label={isOnline ? 'Online' : 'Offline cache mode'} tone={isOnline ? 'ok' : 'warn'} />
                 <MetricChip icon={TimerReset} label={service.delayMinutes ? `${service.delayMinutes}m delay` : titleCase(service.status)} tone={service.status === 'paused' ? 'warn' : 'ok'} />
+                <MetricChip
+                  icon={LoaderCircle}
+                  label={
+                    realtimeStatus === 'subscribed'
+                      ? 'Realtime live'
+                      : realtimeStatus === 'error'
+                        ? 'Realtime error'
+                        : 'Realtime connecting'
+                  }
+                  tone={realtimeStatus === 'error' ? 'warn' : 'ok'}
+                />
               </div>
             </div>
             {SAFE_MODE ? (
@@ -88,10 +101,11 @@ export function AppShell({ children }: PropsWithChildren) {
             ) : null}
             <nav className="mt-4 flex flex-wrap gap-2">
               {[
-                { href: '/', label: 'Order Entry', icon: Pizza },
-                { href: '/kds', label: 'KDS', icon: ChefHat },
-                { href: '/expeditor', label: 'Expeditor', icon: PackageCheck },
-                { href: '/board', label: 'Customer Board', icon: MonitorSmartphone },
+                { href: '/ops', label: 'Choose Service', icon: ClipboardList },
+                { href: `/ops/${service.id}`, label: 'Order Entry', icon: Pizza },
+                { href: `/ops/${service.id}/kds`, label: 'KDS', icon: ChefHat },
+                { href: `/ops/${service.id}/expeditor`, label: 'Expeditor', icon: PackageCheck },
+                { href: `/ops/${service.id}/board`, label: 'Customer Board', icon: MonitorSmartphone },
                 { href: '/admin', label: 'Admin', icon: Settings2 },
                 { href: '/admin/services', label: 'Services', icon: ClipboardList },
                 { href: '/admin/locations', label: 'Locations', icon: Settings2 },
@@ -108,9 +122,7 @@ export function AppShell({ children }: PropsWithChildren) {
                     to={item.href}
                     className={cn(
                       'inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-semibold transition',
-                      location.pathname === item.href
-                        ? 'bg-white text-slate-950'
-                        : 'bg-white/10 text-white hover:bg-white/20',
+                      location.pathname === item.href ? 'bg-white text-slate-950' : 'bg-white/10 text-white hover:bg-white/20',
                     )}
                   >
                     <Icon className="h-4 w-4" />
