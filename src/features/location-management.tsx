@@ -14,10 +14,11 @@ function LocationForm({
   title,
 }: {
   initialValue: Location
-  onSubmit: (location: Location) => void
+  onSubmit: (location: Location) => Promise<void> | void
   title: string
 }) {
   const [form, setForm] = useState(initialValue)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   return (
     <Card className="mx-auto max-w-4xl p-5 sm:p-6">
@@ -57,11 +58,17 @@ function LocationForm({
         </label>
       </div>
       <div className="mt-6 flex flex-wrap gap-3">
-        <Button onClick={() => onSubmit(form)}>Save location</Button>
+        <Button onClick={() => {
+          setSaveError(null)
+          Promise.resolve(onSubmit(form)).catch((error) => {
+            setSaveError(error instanceof Error ? error.message : 'Location save failed.')
+          })
+        }}>Save location</Button>
         <Link to="/admin/locations">
           <Button variant="secondary">Back to locations</Button>
         </Link>
       </div>
+      {saveError ? <p className="mt-3 text-sm font-medium text-rose-600">{saveError}</p> : null}
     </Card>
   )
 }
@@ -121,7 +128,7 @@ export function LocationNewPage() {
     <LocationForm
       title="Create location"
       initialValue={{
-        id: 'new_location',
+        id: '',
         name: '',
         addressLine1: '',
         addressLine2: '',
@@ -130,13 +137,9 @@ export function LocationNewPage() {
         notes: '',
         active: true,
       }}
-      onSubmit={(location) => {
-        const next = {
-          ...location,
-          id: location.id === 'new_location' ? `loc_${location.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}` : location.id,
-        }
-        upsertLocation(next, 'manager')
-        navigate(`/admin/locations/${next.id}`)
+      onSubmit={async (location) => {
+        const savedLocation = await upsertLocation(location, 'manager')
+        navigate(`/admin/locations/${savedLocation.id}`)
       }}
     />
   )
@@ -157,9 +160,9 @@ export function LocationEditPage() {
     <LocationForm
       title="Edit location"
       initialValue={location}
-      onSubmit={(next) => {
-        upsertLocation(next, 'manager')
-        navigate(`/admin/locations/${next.id}`)
+      onSubmit={async (next) => {
+        const savedLocation = await upsertLocation(next, 'manager')
+        navigate(`/admin/locations/${savedLocation.id}`)
       }}
     />
   )

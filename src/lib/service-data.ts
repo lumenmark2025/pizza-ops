@@ -96,6 +96,16 @@ function ensureSupabase(operation: string) {
   }
 }
 
+export function isUuidValue(value?: string | null) {
+  return typeof value === 'string'
+    ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    : false
+}
+
+function normalizeName(value?: string | null) {
+  return value?.trim().toLowerCase() ?? ''
+}
+
 function isMissingColumnError(
   error: { code?: string | null; message?: string | null } | null | undefined,
   column: string,
@@ -176,6 +186,62 @@ export async function loadLocationsFromSupabase() {
   return ((data ?? []) as LocationRow[]).map(mapLocationRow)
 }
 
+export async function persistLocationToSupabase(location: Partial<Location>) {
+  ensureSupabase('Location save')
+
+  const payload = {
+    ...(location.id && isUuidValue(location.id) ? { id: location.id } : {}),
+    name: location.name?.trim() ?? '',
+    address_line_1: location.addressLine1?.trim() ?? '',
+    address_line_2: location.addressLine2?.trim() || null,
+    town_city: location.townCity?.trim() ?? '',
+    postcode: location.postcode?.trim() ?? '',
+    notes: location.notes?.trim() || null,
+    active: location.active !== false,
+  }
+
+  const { data, error } = await supabase!
+    .from('locations')
+    .upsert(payload)
+    .select('id, name, address_line_1, address_line_2, town_city, postcode, notes, active')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`Location save failed. ${error?.message ?? 'Unknown Supabase error.'}`)
+  }
+
+  return mapLocationRow(data as LocationRow)
+}
+
+export function resolveLocationReference(
+  locations: Location[],
+  locationId?: string | null,
+  locationName?: string | null,
+) {
+  const persistedLocations = locations.filter((entry) => isUuidValue(entry.id))
+  const exactMatch = persistedLocations.find((entry) => entry.id === locationId)
+  if (exactMatch) {
+    return { locationId: exactMatch.id, locationName: exactMatch.name }
+  }
+
+  const legacyMatch = locations.find((entry) => entry.id === locationId)
+  const byName =
+    persistedLocations.find((entry) => normalizeName(entry.name) === normalizeName(legacyMatch?.name)) ??
+    persistedLocations.find((entry) => normalizeName(entry.name) === normalizeName(locationName))
+
+  if (byName) {
+    return { locationId: byName.id, locationName: byName.name }
+  }
+
+  if (!locationId && !locationName) {
+    return { locationId: '', locationName: '' }
+  }
+
+  throw new Error(
+    `Service save failed. Selected location is not backed by a persisted Supabase UUID: ${locationId ?? locationName ?? 'unknown location'}`,
+  )
+}
+
 export async function loadServicesFromSupabase() {
   ensureSupabase('Service load')
 
@@ -194,6 +260,10 @@ export async function loadServicesFromSupabase() {
 
 export async function persistServiceToSupabase(service: Partial<ServiceConfig>) {
   ensureSupabase('Service save')
+
+  if (service.locationId && !isUuidValue(service.locationId)) {
+    throw new Error(`Service save failed. Location id must be a UUID, received ${service.locationId}.`)
+  }
 
   const payload = {
     ...(service.id ? { id: service.id } : {}),

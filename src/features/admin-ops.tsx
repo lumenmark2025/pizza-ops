@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
+import { isUuidValue } from '../lib/service-data'
 import { generateServiceSlots, getAvailableSlots, getInventorySummary } from '../lib/slot-engine'
 import { formatDateTime, formatTime } from '../lib/time'
 import { titleCase } from '../lib/utils'
@@ -28,7 +29,7 @@ function StatPanel({ icon: Icon, title, value, detail }: { icon: ComponentType<{
 
 export function ServiceEditPanel() {
   const service = usePizzaOpsStore((state) => state.service)
-  const locations = usePizzaOpsStore((state) => state.locations)
+  const locations = usePizzaOpsStore((state) => state.locations).filter((entry) => isUuidValue(entry.id))
   const orders = usePizzaOpsStore((state) => state.orders)
   const ingredients = usePizzaOpsStore((state) => state.ingredients)
   const inventory = usePizzaOpsStore((state) => state.inventory)
@@ -61,7 +62,7 @@ export function ServiceEditPanel() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [serviceForm, setServiceForm] = useState({
     name: service.name,
-    locationId: service.locationId,
+    locationId: isUuidValue(service.locationId) ? service.locationId : '',
     date: service.date,
     status: service.status,
     acceptPublicOrders: service.acceptPublicOrders,
@@ -85,7 +86,7 @@ export function ServiceEditPanel() {
   useEffect(() => {
     setServiceForm({
       name: service.name,
-      locationId: service.locationId,
+      locationId: isUuidValue(service.locationId) ? service.locationId : '',
       date: service.date,
       status: service.status,
       acceptPublicOrders: service.acceptPublicOrders,
@@ -97,6 +98,17 @@ export function ServiceEditPanel() {
       pizzasPerSlot: service.pizzasPerSlot,
     })
   }, [service])
+
+  useEffect(() => {
+    if (serviceForm.locationId || !locations.length) {
+      return
+    }
+
+    setServiceForm((current) => ({
+      ...current,
+      locationId: locations[0].id,
+    }))
+  }, [locations, serviceForm.locationId])
 
   useEffect(() => {
     if (!orders.length) {

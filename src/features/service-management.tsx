@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
+import { isUuidValue } from '../lib/service-data'
 import { ServiceEditPanel } from './admin-ops'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import { titleCase } from '../lib/utils'
@@ -21,12 +22,15 @@ function ServiceForm({
 }) {
   const allLocations = usePizzaOpsStore((state) => state.locations)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
-  const locations = useMemo(() => allLocations.filter((entry) => entry.active), [allLocations])
+  const locations = useMemo(
+    () => allLocations.filter((entry) => entry.active && isUuidValue(entry.id)),
+    [allLocations],
+  )
   const [applyDefaults, setApplyDefaults] = useState(true)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: initialValue.name,
-    locationId: initialValue.locationId,
+    locationId: isUuidValue(initialValue.locationId) ? initialValue.locationId : '',
     date: initialValue.date,
     status: initialValue.status,
     acceptPublicOrders: initialValue.acceptPublicOrders,
@@ -41,7 +45,7 @@ function ServiceForm({
   useEffect(() => {
     setForm({
       name: initialValue.name,
-      locationId: initialValue.locationId,
+      locationId: isUuidValue(initialValue.locationId) ? initialValue.locationId : '',
       date: initialValue.date,
       status: initialValue.status,
       acceptPublicOrders: initialValue.acceptPublicOrders,
@@ -53,6 +57,18 @@ function ServiceForm({
       pizzasPerSlot: initialValue.pizzasPerSlot,
     })
   }, [initialValue])
+
+  useEffect(() => {
+    if (form.locationId || !locations.length) {
+      return
+    }
+
+    setForm((current) => ({
+      ...current,
+      locationId: locations[0].id,
+      name: current.name || locations[0].name,
+    }))
+  }, [form.locationId, locations])
 
   const selectedLocation = locations.find((entry) => entry.id === form.locationId)
 

@@ -20,6 +20,8 @@ import {
 import { normalizeMenuItem } from '../lib/menu'
 import { SAFE_MODE } from '../lib/runtime-flags'
 import {
+  persistLocationToSupabase,
+  resolveLocationReference,
   loadLocationsFromSupabase,
   loadOrdersForService,
   loadServiceInventoryFromSupabase,
@@ -99,7 +101,7 @@ type StoreState = ServiceSnapshot & {
   updateService: (updates: Partial<ServiceConfig>, actor: string) => Promise<void>
   updateServiceLocations: (locations: string[], actor: string) => void
   updateBranding: (branding: BrandingSettings, actor: string) => void
-  upsertLocation: (location: Location, actor: string) => void
+  upsertLocation: (location: Location, actor: string) => Promise<Location>
   createFreshService: (input: Partial<ServiceConfig>, actor: string, options?: { applyInventoryDefaults?: boolean }) => Promise<string>
   loadServiceForEditing: (serviceId: string) => boolean
   duplicateService: (serviceId: string, actor: string) => Promise<string | null>
@@ -1479,13 +1481,16 @@ export const usePizzaOpsStore = create<StoreState>()(
         },
         updateService: async (updates, actor) => {
           const state = get()
-          const locationName = updates.locationId
-            ? state.locations.find((entry) => entry.id === updates.locationId)?.name
-            : updates.locationName
+          const resolvedLocation = resolveLocationReference(
+            state.locations,
+            updates.locationId ?? state.service.locationId,
+            updates.locationName ?? state.service.locationName,
+          )
           const savedService = await persistServiceToSupabase({
             ...state.service,
             ...updates,
-            ...(locationName ? { locationName } : {}),
+            locationId: resolvedLocation.locationId,
+            locationName: resolvedLocation.locationName,
           })
 
           commit((current) => ({
@@ -1515,43 +1520,54 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        upsertLocation: (location, actor) => {
-          const exists = get().locations.some((entry) => entry.id === location.id)
+        upsertLocation: async (location, actor) => {
+          const savedLocation = await persistLocationToSupabase(location)
+          const previousLocationId = location.id
+          const exists = get().locations.some((entry) => entry.id === savedLocation.id || entry.id === previousLocationId)
           commit((current) => ({
             locations: exists
-              ? current.locations.map((entry) => (entry.id === location.id ? location : entry))
-              : [...current.locations, location],
+              ? current.locations.map((entry) =>
+                  entry.id === savedLocation.id || entry.id === previousLocationId ? savedLocation : entry,
+                )
+              : [...current.locations, savedLocation],
             serviceLocations: Array.from(
               new Set(
                 (exists
-                  ? current.locations.map((entry) => (entry.id === location.id ? location.name : entry.name))
-                  : [...current.locations.map((entry) => entry.name), location.name]).filter(Boolean),
+                  ? current.locations.map((entry) =>
+                      entry.id === savedLocation.id || entry.id === previousLocationId ? savedLocation.name : entry.name,
+                    )
+                  : [...current.locations.map((entry) => entry.name), savedLocation.name]).filter(Boolean),
               ),
             ),
             services: current.services.map((entry) =>
-              entry.locationId === location.id
-                ? { ...entry, locationName: location.name }
+              entry.locationId === savedLocation.id || entry.locationId === previousLocationId
+                ? { ...entry, locationId: savedLocation.id, locationName: savedLocation.name }
                 : entry,
             ),
             service:
-              current.service.locationId === location.id
-                ? { ...current.service, locationName: location.name }
+              current.service.locationId === savedLocation.id || current.service.locationId === previousLocationId
+                ? { ...current.service, locationId: savedLocation.id, locationName: savedLocation.name }
                 : current.service,
             activityLog: [
-              createActivity('service_updated', actor, `${exists ? 'Updated' : 'Created'} location ${location.name}.`),
+              createActivity('service_updated', actor, `${exists ? 'Updated' : 'Created'} location ${savedLocation.name}.`),
               ...current.activityLog,
             ],
           }))
+          return savedLocation
         },
         createFreshService: async (input, actor, options) => {
           const current = get()
-          const targetLocation = current.locations.find((entry) => entry.id === input.locationId)
+          const resolvedLocation = resolveLocationReference(
+            current.locations,
+            input.locationId ?? current.service.locationId,
+            input.locationName ?? current.service.locationName,
+          )
           const draftService: ServiceConfig = {
             ...current.service,
             id: '',
             ...input,
-            locationName: targetLocation?.name ?? input.locationName ?? current.service.locationName,
-            locationId: input.locationId ?? current.service.locationId,
+            locationName: resolvedLocation.locationName || current.service.locationName,
+            locationId: resolvedLocation.locationId || current.service.locationId,
             date: input.date ?? new Date().toISOString().slice(0, 10),
             status: input.status ?? 'draft',
             acceptPublicOrders: input.acceptPublicOrders ?? true,
@@ -1636,7 +1652,12 @@ export const usePizzaOpsStore = create<StoreState>()(
             publicOrderClosureReason: 'Review before opening',
           }
 
-          const savedDuplicate = await persistServiceToSupabase(duplicate)
+          const resolvedLocation = resolveLocationReference(state.locations, duplicate.locationId, duplicate.locationName)
+          const savedDuplicate = await persistServiceToSupabase({
+            ...duplicate,
+            locationId: resolvedLocation.locationId,
+            locationName: resolvedLocation.locationName,
+          })
           await seedServiceInventoryFromDefaults(savedDuplicate.id)
           commit((current) => ({
             services: [savedDuplicate, ...current.services],
@@ -1654,8 +1675,11 @@ export const usePizzaOpsStore = create<StoreState>()(
             return
           }
 
+          const resolvedLocation = resolveLocationReference(current.locations, target.locationId, target.locationName)
           const savedService = await persistServiceToSupabase({
             ...target,
+            locationId: resolvedLocation.locationId,
+            locationName: resolvedLocation.locationName,
             status: 'closed',
             acceptPublicOrders: false,
           })
@@ -1935,8 +1959,6 @@ export const usePizzaOpsStore = create<StoreState>()(
         }
       },
       partialize: (state) => ({
-        locations: state.locations,
-        serviceLocations: state.serviceLocations,
         branding: state.branding,
         discountCodes: state.discountCodes,
         discountCodeRedemptions: state.discountCodeRedemptions,
