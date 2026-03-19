@@ -46,7 +46,6 @@ export function ServiceEditPanel() {
   const updateService = usePizzaOpsStore((state) => state.updateService)
   const setInventoryQuantity = usePizzaOpsStore((state) => state.setInventoryQuantity)
   const adjustInventoryQuantity = usePizzaOpsStore((state) => state.adjustInventoryQuantity)
-  const setInventoryDefaultQuantity = usePizzaOpsStore((state) => state.setInventoryDefaultQuantity)
   const applyInventoryDefaults = usePizzaOpsStore((state) => state.applyInventoryDefaults)
   const assignPager = usePizzaOpsStore((state) => state.assignPager)
 
@@ -59,6 +58,7 @@ export function ServiceEditPanel() {
   const [moveWarning, setMoveWarning] = useState<string | null>(null)
   const [pagerOrderId, setPagerOrderId] = useState(orders[0]?.id ?? '')
   const [pagerValue, setPagerValue] = useState('')
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [serviceForm, setServiceForm] = useState({
     name: service.name,
     locationId: service.locationId,
@@ -154,7 +154,13 @@ export function ServiceEditPanel() {
             <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Public ordering</span><select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.acceptPublicOrders ? 'open' : 'closed'} onChange={(event) => setServiceForm((current) => ({ ...current, acceptPublicOrders: event.target.value === 'open' }))}><option value="open">Open</option><option value="closed">Closed</option></select></label>
             <label className="grid gap-2 text-sm sm:col-span-2"><span className="font-semibold text-slate-600">Public order closure reason</span><Textarea value={serviceForm.publicOrderClosureReason} placeholder="Shown on the customer ordering page when public orders are closed" onChange={(event) => setServiceForm((current) => ({ ...current, publicOrderClosureReason: event.target.value }))} /></label>
           </div>
-          <Button className="mt-4" onClick={() => updateService({ ...serviceForm, locationName: locations.find((entry) => entry.id === serviceForm.locationId)?.name ?? service.locationName, publicOrderClosureReason: serviceForm.acceptPublicOrders ? null : serviceForm.publicOrderClosureReason || 'Public ordering temporarily closed' }, 'manager')}>Save service changes</Button>
+          <Button className="mt-4" onClick={() => {
+            setSaveError(null)
+            void updateService({ ...serviceForm, locationName: locations.find((entry) => entry.id === serviceForm.locationId)?.name ?? service.locationName, publicOrderClosureReason: serviceForm.acceptPublicOrders ? null : serviceForm.publicOrderClosureReason || 'Public ordering temporarily closed' }, 'manager').catch((error) => {
+              setSaveError(error instanceof Error ? error.message : 'Service save failed.')
+            })
+          }}>Save service changes</Button>
+          {saveError ? <p className="mt-3 text-sm font-medium text-rose-600">{saveError}</p> : null}
         </Card>
 
         <Card className="p-4 sm:p-5">
@@ -181,9 +187,9 @@ export function ServiceEditPanel() {
                       <p className="text-sm text-slate-500">Reserved {entry.committed} - Remaining {entry.remaining}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" onClick={() => adjustInventoryQuantity(entry.ingredientId, -1, 'manager')}>-</Button>
-                      <Input className="w-24 text-center" type="number" value={entry.total} onChange={(event) => setInventoryQuantity(entry.ingredientId, Number(event.target.value), 'manager')} />
-                      <Button size="sm" variant="outline" onClick={() => adjustInventoryQuantity(entry.ingredientId, 1, 'manager')}>+</Button>
+                      <Button size="sm" variant="outline" onClick={() => { void adjustInventoryQuantity(entry.ingredientId, -1, 'manager').catch((error) => setSaveError(error instanceof Error ? error.message : 'Inventory update failed.')) }}>-</Button>
+                      <Input className="w-24 text-center" type="number" value={entry.total} onChange={(event) => { void setInventoryQuantity(entry.ingredientId, Number(event.target.value), 'manager').catch((error) => setSaveError(error instanceof Error ? error.message : 'Inventory update failed.')) }} />
+                      <Button size="sm" variant="outline" onClick={() => { void adjustInventoryQuantity(entry.ingredientId, 1, 'manager').catch((error) => setSaveError(error instanceof Error ? error.message : 'Inventory update failed.')) }}>+</Button>
                     </div>
                   </div>
                 </div>
@@ -194,19 +200,22 @@ export function ServiceEditPanel() {
 
         <Card className="p-4 sm:p-5">
           <div className="flex items-center justify-between">
-            <div><h2 className="font-display text-2xl font-bold">Default service inventory</h2><p className="mt-1 text-sm text-slate-500">Standard van load-out used when opening a fresh service.</p></div>
-            <Button variant="secondary" onClick={() => applyInventoryDefaults('manager')}>Apply defaults to service</Button>
+            <div><h2 className="font-display text-2xl font-bold">Ingredient default stock</h2><p className="mt-1 text-sm text-slate-500">Global defaults live on ingredients and are copied into this service when you apply defaults.</p></div>
+            <Button variant="secondary" onClick={() => { void applyInventoryDefaults('manager').catch((error) => setSaveError(error instanceof Error ? error.message : 'Apply defaults failed.')) }}>Apply defaults to service</Button>
           </div>
           <div className="mt-4 space-y-3">
             {inventoryDefaults.map((entry) => {
               const ingredient = ingredients.find((item) => item.id === entry.ingredientId)
               return (
                 <div key={entry.ingredientId} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
-                  <div><p className="font-semibold">{ingredient?.name ?? entry.ingredientId}</p><p className="text-sm text-slate-500">Editable default amount</p></div>
-                  <Input className="w-28 text-center" type="number" value={entry.quantity} onChange={(event) => setInventoryDefaultQuantity(entry.ingredientId, Number(event.target.value), 'manager')} />
+                  <div><p className="font-semibold">{ingredient?.name ?? entry.ingredientId}</p><p className="text-sm text-slate-500">Edit in Ingredients admin to change the default.</p></div>
+                  <div className="w-28 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-center text-sm font-semibold text-slate-700">{entry.quantity}</div>
                 </div>
               )
             })}
+          </div>
+          <div className="mt-4">
+            <Link to="/admin/ingredients"><Button variant="outline">Open ingredients</Button></Link>
           </div>
         </Card>
       </div>

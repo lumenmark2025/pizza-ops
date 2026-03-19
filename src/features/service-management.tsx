@@ -17,12 +17,13 @@ function ServiceForm({
 }: {
   initialValue: ServiceConfig
   submitLabel: string
-  onSubmit: (value: Partial<ServiceConfig>, applyDefaults: boolean) => void
+  onSubmit: (value: Partial<ServiceConfig>, applyDefaults: boolean) => Promise<void> | void
 }) {
   const allLocations = usePizzaOpsStore((state) => state.locations)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const locations = useMemo(() => allLocations.filter((entry) => entry.active), [allLocations])
   const [applyDefaults, setApplyDefaults] = useState(true)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: initialValue.name,
     locationId: initialValue.locationId,
@@ -143,13 +144,21 @@ function ServiceForm({
         </label>
       </div>
       <div className="mt-6 flex flex-wrap gap-3">
-        <Button onClick={() => onSubmit({ ...form, publicOrderClosureReason: form.acceptPublicOrders ? null : form.publicOrderClosureReason || 'Public ordering temporarily closed' }, applyDefaults)}>
+        <Button onClick={() => {
+          setSubmitError(null)
+          Promise.resolve(
+            onSubmit({ ...form, publicOrderClosureReason: form.acceptPublicOrders ? null : form.publicOrderClosureReason || 'Public ordering temporarily closed' }, applyDefaults),
+          ).catch((error) => {
+            setSubmitError(error instanceof Error ? error.message : 'Service save failed.')
+          })
+        }}>
           Save service
         </Button>
         <Link to="/admin/services">
           <Button variant="secondary">Back to services</Button>
         </Link>
       </div>
+      {submitError ? <p className="mt-3 text-sm font-medium text-rose-600">{submitError}</p> : null}
     </Card>
   )
 }
@@ -217,14 +226,17 @@ export function ServicesListPage() {
                     <Button>Edit service</Button>
                   </Link>
                   <Button variant="secondary" onClick={() => {
-                    const duplicateId = duplicateService(entry.id, 'manager')
-                    if (duplicateId) {
-                      navigate(`/admin/services/${duplicateId}`)
-                    }
+                    void duplicateService(entry.id, 'manager').then((duplicateId) => {
+                      if (duplicateId) {
+                        navigate(`/admin/services/${duplicateId}`)
+                      }
+                    })
                   }}>
                     Duplicate
                   </Button>
-                  <Button variant="outline" onClick={() => archiveService(entry.id, 'manager')}>
+                  <Button variant="outline" onClick={() => {
+                    void archiveService(entry.id, 'manager')
+                  }}>
                     Cancel/archive
                   </Button>
                 </div>
@@ -246,7 +258,7 @@ export function ServiceNewPage() {
   const initialValue = useMemo<ServiceConfig>(
     () => ({
       ...service,
-      id: 'new_service',
+      id: '',
       name: '',
       locationId: locations[0]?.id ?? service.locationId,
       locationName: locations[0]?.name ?? service.locationName,
@@ -264,8 +276,8 @@ export function ServiceNewPage() {
     <ServiceForm
       initialValue={initialValue}
       submitLabel="Create service"
-      onSubmit={(value, applyDefaults) => {
-        const nextId = createFreshService(value, 'manager', {
+      onSubmit={async (value, applyDefaults) => {
+        const nextId = await createFreshService(value, 'manager', {
           applyInventoryDefaults: applyDefaults,
         })
         navigate(`/admin/services/${nextId}`)
@@ -277,6 +289,7 @@ export function ServiceNewPage() {
 export function ServiceEditPage() {
   const { serviceId } = useParams()
   const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
+  const service = usePizzaOpsStore((state) => state.service)
   const services = usePizzaOpsStore((state) => state.services)
 
   useEffect(() => {
@@ -285,8 +298,18 @@ export function ServiceEditPage() {
     }
   }, [loadServiceForEditing, serviceId])
 
-  if (!serviceId || !services.some((entry) => entry.id === serviceId)) {
+  if (!serviceId) {
     return <Navigate to="/admin/services" replace />
+  }
+
+  if (service.id !== serviceId && !services.some((entry) => entry.id === serviceId)) {
+    return (
+      <Card className="mx-auto max-w-5xl p-5 sm:p-6">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Services</p>
+        <h2 className="mt-2 font-display text-3xl font-bold">Loading service</h2>
+        <p className="mt-2 text-sm text-slate-500">Fetching the persisted service and inventory from Supabase.</p>
+      </Card>
+    )
   }
 
   return <ServiceEditPanel />

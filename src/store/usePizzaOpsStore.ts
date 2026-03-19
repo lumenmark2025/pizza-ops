@@ -19,6 +19,15 @@ import {
 } from '../lib/master-data-sync'
 import { normalizeMenuItem } from '../lib/menu'
 import { SAFE_MODE } from '../lib/runtime-flags'
+import {
+  loadLocationsFromSupabase,
+  loadOrdersForService,
+  loadServiceInventoryFromSupabase,
+  loadServicesFromSupabase,
+  persistServiceInventoryQuantity,
+  persistServiceToSupabase,
+  seedServiceInventoryFromDefaults,
+} from '../lib/service-data'
 import { allocateAcrossSlots, getAvailableSlots } from '../lib/slot-engine'
 import {
   canUseRealtimeSync,
@@ -87,19 +96,19 @@ type StoreState = ServiceSnapshot & {
   retryLoyverseSync: (queueId: string) => void
   getAvailableTimes: (items: OrderItem[]) => ReturnType<typeof getAvailableSlots>
   resetDemo: () => void
-  updateService: (updates: Partial<ServiceConfig>, actor: string) => void
+  updateService: (updates: Partial<ServiceConfig>, actor: string) => Promise<void>
   updateServiceLocations: (locations: string[], actor: string) => void
   updateBranding: (branding: BrandingSettings, actor: string) => void
   upsertLocation: (location: Location, actor: string) => void
-  createFreshService: (input: Partial<ServiceConfig>, actor: string, options?: { applyInventoryDefaults?: boolean }) => string
+  createFreshService: (input: Partial<ServiceConfig>, actor: string, options?: { applyInventoryDefaults?: boolean }) => Promise<string>
   loadServiceForEditing: (serviceId: string) => boolean
-  duplicateService: (serviceId: string, actor: string) => string | null
-  archiveService: (serviceId: string, actor: string) => void
+  duplicateService: (serviceId: string, actor: string) => Promise<string | null>
+  archiveService: (serviceId: string, actor: string) => Promise<void>
   upsertIngredient: (ingredient: Ingredient, defaultQuantity: number, actor: string) => Promise<void>
-  setInventoryQuantity: (ingredientId: string, quantity: number, actor: string) => void
-  adjustInventoryQuantity: (ingredientId: string, delta: number, actor: string) => void
-  setInventoryDefaultQuantity: (ingredientId: string, quantity: number, actor: string) => void
-  applyInventoryDefaults: (actor: string) => void
+  setInventoryQuantity: (ingredientId: string, quantity: number, actor: string) => Promise<void>
+  adjustInventoryQuantity: (ingredientId: string, delta: number, actor: string) => Promise<void>
+  setInventoryDefaultQuantity: (ingredientId: string, quantity: number, actor: string) => Promise<void>
+  applyInventoryDefaults: (actor: string) => Promise<void>
   upsertMenuItem: (
     menuItem: MenuItem,
     recipeRows: MenuItemRecipe[],
@@ -137,6 +146,7 @@ const SNAPSHOT_KEYS = [
 ] as const
 
 const CANONICAL_MASTER_DATA_KEYS = ['ingredients', 'menuItems', 'recipes', 'modifiers'] as const
+const RUNTIME_SYNC_KEYS = ['customers', 'orders', 'history', 'payments', 'loyverseQueue', 'activityLog'] as const
 
 let applyingRemoteSnapshot = false
 let stopRealtimeSubscription: null | (() => void) = null
@@ -157,6 +167,14 @@ const activeKdsStatuses: OrderStatus[] = ['taken', 'prepping', 'in_oven', 'ready
 
 function randomId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function randomUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `${Math.random().toString(16).slice(2, 10)}-${Math.random().toString(16).slice(2, 6)}-4${Math.random().toString(16).slice(2, 5)}-8${Math.random().toString(16).slice(2, 5)}-${Math.random().toString(16).slice(2, 14)}`
 }
 
 function createActivity(
@@ -210,6 +228,15 @@ function getOperationalSnapshot(state: ServiceSnapshot): ServiceSnapshot {
     ;(snapshot as Record<string, unknown>)[key] = []
   }
 
+  snapshot.service = state.service
+  snapshot.services = []
+  snapshot.locations = []
+  snapshot.serviceLocations = []
+  snapshot.inventory = []
+  snapshot.inventoryDefaults = []
+  snapshot.discountCodes = []
+  snapshot.discountCodeRedemptions = []
+
   return snapshot
 }
 
@@ -235,13 +262,10 @@ function getBlankOperationalState(snapshot: ServiceSnapshot, serviceId: string):
 }
 
 function mergeOperationalSnapshot(current: ServiceSnapshot, runtimeSnapshot: ServiceSnapshot): ServiceSnapshot {
-  const merged = {
-    ...current,
-    ...runtimeSnapshot,
-  } as ServiceSnapshot
+  const merged = { ...current } as ServiceSnapshot
 
-  for (const key of CANONICAL_MASTER_DATA_KEYS) {
-    ;(merged as Record<string, unknown>)[key] = current[key]
+  for (const key of RUNTIME_SYNC_KEYS) {
+    ;(merged as Record<string, unknown>)[key] = runtimeSnapshot[key]
   }
 
   return normalizeSnapshot(merged)
@@ -482,33 +506,33 @@ function createDemoState(): ServiceSnapshot {
 }
 
 async function mirrorOrderToSupabase(order: Order, serviceId: string) {
-  if (SAFE_MODE || !supabase) {
+  if (!supabase) {
     return
   }
+
+  const orderNumberMatch = order.reference.match(/(\d+)/)
+  const orderNumber = Number(orderNumberMatch?.[1] ?? 0) || Date.now()
 
   await supabase.from('orders').upsert({
     id: order.id,
     service_id: serviceId,
-    customer_id: order.customerId,
+    customer_id: null,
+    order_number: orderNumber,
     customer_name: order.customerName,
     customer_mobile: order.customerMobile,
     customer_email: order.customerEmail,
     auth_user_id: order.authUserId,
-    reference: order.reference,
     source: order.source,
     status: order.status,
-    promised_time: order.promisedTime,
-    pizza_count: order.pizzaCount,
-    subtotal_amount: order.subtotalAmount ?? 0,
-    total_discount_amount: order.totalDiscountAmount ?? 0,
-    order_discount_amount: order.orderDiscountAmount ?? 0,
-    total_amount: order.totalAmount,
+    promised_collection_time: order.promisedTime,
+    subtotal_pence: Math.round(Number(order.subtotalAmount ?? 0) * 100),
+    discount_pence: Math.round(Number(order.totalDiscountAmount ?? 0) * 100),
+    total_pence: Math.round(Number(order.totalAmount ?? 0) * 100),
     applied_discount_code_id: order.appliedDiscountCodeId ?? null,
     applied_discount_summary: order.appliedDiscountSummary ?? null,
     pricing_summary: order.pricingSummary ?? null,
     payment_status: order.paymentStatus,
     payment_method: order.paymentMethod,
-    pager_number: order.pagerNumber,
     receipt_email_status: order.receiptEmailStatus,
     receipt_sent_at: order.receiptSentAt,
     receipt_last_error: order.receiptLastError,
@@ -527,12 +551,19 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
       id: item.id,
       order_id: order.id,
       menu_item_id: item.menuItemId,
+      item_name:
+        usePizzaOpsStore.getState().menuItems.find((entry) => entry.id === item.menuItemId)?.name ??
+        item.menuItemId,
       quantity: item.quantity,
-      original_unit_price: item.originalUnitPrice ?? null,
-      item_discount_amount: item.itemDiscountAmount ?? 0,
-      final_unit_price: item.finalUnitPrice ?? null,
+      unit_price_pence: Math.round(Number(item.originalUnitPrice ?? item.finalUnitPrice ?? 0) * 100),
+      line_total_pence: Math.round(
+        Number((item.finalUnitPrice ?? item.originalUnitPrice ?? 0) * item.quantity) * 100,
+      ),
+      original_unit_price_pence: item.originalUnitPrice != null ? Math.round(Number(item.originalUnitPrice) * 100) : null,
+      item_discount_pence: Math.round(Number(item.itemDiscountAmount ?? 0) * 100),
+      final_unit_price_pence: item.finalUnitPrice != null ? Math.round(Number(item.finalUnitPrice) * 100) : null,
       applied_discount_summary: item.appliedDiscountSummary ?? null,
-      progress_count: item.progressCount ?? 0,
+      status: order.status,
       notes: item.notes ?? null,
     })),
   )
@@ -545,10 +576,8 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
   const modifierRows = order.items.flatMap((item) =>
     (item.modifiers ?? []).map((modifier) => ({
       order_item_id: item.id,
-      modifier_id: modifier.modifierId,
       modifier_name: modifier.name,
-      price_delta: modifier.priceDelta,
-      quantity: modifier.quantity,
+      price_delta_pence: Math.round(Number(modifier.priceDelta ?? 0) * 100),
     })),
   )
 
@@ -712,7 +741,8 @@ export const usePizzaOpsStore = create<StoreState>()(
       }
 
       const refreshMasterDataFromTables = async () => {
-        const result = await loadMasterDataFromSupabase(getPersistableSnapshot(get()))
+        const currentSnapshot = getPersistableSnapshot(get())
+        const result = await loadMasterDataFromSupabase(currentSnapshot)
         if (!result.patch) {
           set({
             masterDataLoadError: result.error ?? 'Master data load failed.',
@@ -721,14 +751,40 @@ export const usePizzaOpsStore = create<StoreState>()(
           return
         }
 
-        commit(
-          () => ({
-            ...result.patch,
-            masterDataLoadError: result.error,
+        try {
+          const [locations, services] = await Promise.all([
+            loadLocationsFromSupabase(),
+            loadServicesFromSupabase(),
+          ])
+          const activeService =
+            services.find((entry) => entry.id === get().service.id) ??
+            services[0] ??
+            currentSnapshot.service
+          const inventory = activeService?.id
+            ? await loadServiceInventoryFromSupabase(activeService.id, result.patch.ingredients)
+            : result.patch.inventoryDefaults.map((entry) => ({ ...entry }))
+          const orders = activeService?.id ? await loadOrdersForService(activeService.id) : []
+
+          commit(
+            () => ({
+              ...result.patch,
+              locations,
+              services,
+              service: activeService,
+              serviceLocations: Array.from(new Set(locations.map((entry) => entry.name))),
+              inventory,
+              orders,
+              masterDataLoadError: result.error,
+              masterDataLoadWarnings: result.warnings,
+            }),
+            { sync: false },
+          )
+        } catch (error) {
+          set({
+            masterDataLoadError: error instanceof Error ? error.message : 'Backend state load failed.',
             masterDataLoadWarnings: result.warnings,
-          }),
-          { sync: false },
-        )
+          })
+        }
       }
 
       return {
@@ -893,11 +949,11 @@ export const usePizzaOpsStore = create<StoreState>()(
             authUserId: input.authUserId ?? existingCustomer?.authUserId ?? null,
           }
           const now = toIsoNow()
-          const orderId = randomId('order')
+          const orderId = randomUuid()
           const paymentId = randomId('pay')
           const orderItems = input.items.map((item) => ({
             ...item,
-            id: randomId('oi'),
+            id: randomUuid(),
             progressCount: item.progressCount ?? 0,
             modifiers: item.modifiers ?? [],
           }))
@@ -950,10 +1006,11 @@ export const usePizzaOpsStore = create<StoreState>()(
 
           const paymentStatus: PaymentStatus =
             input.paymentMethod === 'cash' || input.paymentMethod === 'terminal' ? 'paid' : 'pending'
+          const orderNumber = 100 + state.orders.length + 1
 
           const order: Order = {
             id: orderId,
-            reference: `PZ-${100 + state.orders.length + 1}`,
+            reference: `PZ-${orderNumber}`,
             customerId: customer.id,
             customerName: customer.name,
             customerMobile: customer.mobile,
@@ -1420,17 +1477,20 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        updateService: (updates, actor) => {
+        updateService: async (updates, actor) => {
+          const state = get()
           const locationName = updates.locationId
-            ? get().locations.find((entry) => entry.id === updates.locationId)?.name
+            ? state.locations.find((entry) => entry.id === updates.locationId)?.name
             : updates.locationName
+          const savedService = await persistServiceToSupabase({
+            ...state.service,
+            ...updates,
+            ...(locationName ? { locationName } : {}),
+          })
+
           commit((current) => ({
-            service: { ...current.service, ...updates, ...(locationName ? { locationName } : {}) },
-            services: current.services.map((entry) =>
-              entry.id === current.service.id
-                ? { ...entry, ...updates, ...(locationName ? { locationName } : {}) }
-                : entry,
-            ),
+            service: savedService,
+            services: current.services.map((entry) => (entry.id === savedService.id ? savedService : entry)),
             activityLog: [
               createActivity('service_updated', actor, 'Service settings updated.'),
               ...current.activityLog,
@@ -1483,13 +1543,13 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        createFreshService: (input, actor, options) => {
+        createFreshService: async (input, actor, options) => {
           const current = get()
           const targetLocation = current.locations.find((entry) => entry.id === input.locationId)
-          const nextService: ServiceConfig = {
+          const draftService: ServiceConfig = {
             ...current.service,
+            id: '',
             ...input,
-            id: input.id ?? randomId('service'),
             locationName: targetLocation?.name ?? input.locationName ?? current.service.locationName,
             locationId: input.locationId ?? current.service.locationId,
             date: input.date ?? new Date().toISOString().slice(0, 10),
@@ -1501,23 +1561,18 @@ export const usePizzaOpsStore = create<StoreState>()(
             pauseReason: null,
           }
 
-          commit(() => ({
-            ...createDemoState(),
-            locations: current.locations.map((entry) => ({ ...entry })),
-            ingredients: current.ingredients.map((entry) => ({ ...entry })),
-            menuItems: current.menuItems.map((entry) => ({ ...entry })),
-            recipes: current.recipes.map((entry) => ({ ...entry })),
-            modifiers: current.modifiers.map((entry) => ({ ...entry })),
-            discountCodes: current.discountCodes.map((entry) => ({ ...entry })),
-            discountCodeRedemptions: current.discountCodeRedemptions.map((entry) => ({ ...entry })),
+          const nextService = await persistServiceToSupabase(draftService)
+          await seedServiceInventoryFromDefaults(
+            nextService.id,
+            options?.applyInventoryDefaults === false ? 0 : undefined,
+          )
+
+          const inventory = await loadServiceInventoryFromSupabase(nextService.id, current.ingredients)
+
+          commit((currentState) => ({
             service: nextService,
-            services: [nextService, ...current.services.filter((entry) => entry.id !== nextService.id)],
-            serviceLocations: current.serviceLocations,
-            inventory:
-              options?.applyInventoryDefaults === false
-                ? current.inventoryDefaults.map((entry) => ({ ...entry, quantity: 0 }))
-                : current.inventoryDefaults.map((entry) => ({ ...entry })),
-            inventoryDefaults: current.inventoryDefaults.map((entry) => ({ ...entry })),
+            services: [nextService, ...currentState.services.filter((entry) => entry.id !== nextService.id)],
+            inventory,
             orders: [],
             customers: [],
             payments: [],
@@ -1531,7 +1586,20 @@ export const usePizzaOpsStore = create<StoreState>()(
           const state = get()
           const target = state.services.find((entry) => entry.id === serviceId)
           if (!target) {
-            return false
+            commit((current) => ({
+              service: {
+                ...current.service,
+                id: serviceId,
+              },
+              inventory: [],
+              orders: [],
+              customers: [],
+              payments: [],
+              loyverseQueue: [],
+              history: [],
+              activityLog: [],
+            }), { sync: false })
+            return true
           }
 
           commit((current) => ({
@@ -1543,7 +1611,7 @@ export const usePizzaOpsStore = create<StoreState>()(
               pausedUntil: target.pausedUntil ?? null,
               pauseReason: target.pauseReason ?? null,
             },
-            inventory: current.inventoryDefaults.map((entry) => ({ ...entry })),
+            inventory: current.inventory,
             orders: serviceId === current.service.id ? current.orders : [],
             customers: serviceId === current.service.id ? current.customers : [],
             payments: serviceId === current.service.id ? current.payments : [],
@@ -1553,45 +1621,59 @@ export const usePizzaOpsStore = create<StoreState>()(
           }))
           return true
         },
-        duplicateService: (serviceId, actor) => {
+        duplicateService: async (serviceId, actor) => {
           const state = get()
           const source = state.services.find((entry) => entry.id === serviceId)
           if (!source) {
             return null
           }
 
-          const duplicateId = randomId('service')
           const duplicate = {
             ...source,
-            id: duplicateId,
             name: `${source.name} Copy`,
             status: 'draft' as const,
             acceptPublicOrders: false,
             publicOrderClosureReason: 'Review before opening',
           }
 
+          const savedDuplicate = await persistServiceToSupabase(duplicate)
+          await seedServiceInventoryFromDefaults(savedDuplicate.id)
           commit((current) => ({
-            services: [duplicate, ...current.services],
+            services: [savedDuplicate, ...current.services],
             activityLog: [
               createActivity('service_updated', actor, `Duplicated service ${source.name}.`),
               ...current.activityLog,
             ],
           }))
-          return duplicateId
+          return savedDuplicate.id
         },
-        archiveService: (serviceId, actor) => {
-          commit((current) => ({
-            services: current.services.map((entry) =>
-              entry.id === serviceId ? { ...entry, status: 'closed', acceptPublicOrders: false } : entry,
-            ),
+        archiveService: async (serviceId, actor) => {
+          const current = get()
+          const target = current.services.find((entry) => entry.id === serviceId)
+          if (!target) {
+            return
+          }
+
+          const savedService = await persistServiceToSupabase({
+            ...target,
+            status: 'closed',
+            acceptPublicOrders: false,
+          })
+
+          commit((state) => ({
+            service: state.service.id === serviceId ? savedService : state.service,
+            services: state.services.map((entry) => (entry.id === serviceId ? savedService : entry)),
             activityLog: [
               createActivity('service_updated', actor, `Archived service ${serviceId}.`),
-              ...current.activityLog,
+              ...state.activityLog,
             ],
           }))
         },
         upsertIngredient: async (ingredient, defaultQuantity, actor) => {
-          const persistedIngredient = await persistIngredientToSupabase(ingredient)
+          const persistedIngredient = await persistIngredientToSupabase({
+            ...ingredient,
+            defaultStockAmount: defaultQuantity,
+          })
           const nextIngredient = persistedIngredient ?? ingredient
           const exists = get().ingredients.some((entry) => entry.id === nextIngredient.id)
           commit((current) => ({
@@ -1621,26 +1703,41 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        setInventoryQuantity: (ingredientId, quantity, actor) => {
+        setInventoryQuantity: async (ingredientId, quantity, actor) => {
           const safeQuantity = Math.max(0, quantity)
+          const serviceId = get().service.id
+          await persistServiceInventoryQuantity(serviceId, ingredientId, safeQuantity)
           commit((current) => ({
-            inventory: current.inventory.map((entry) =>
-              entry.ingredientId === ingredientId ? { ...entry, quantity: safeQuantity } : entry,
-            ),
+            inventory: current.inventory.some((entry) => entry.ingredientId === ingredientId)
+              ? current.inventory.map((entry) =>
+                  entry.ingredientId === ingredientId ? { ...entry, quantity: safeQuantity } : entry,
+                )
+              : [...current.inventory, { ingredientId, quantity: safeQuantity }],
             activityLog: [
               createActivity('inventory_adjusted', actor, `Inventory ${ingredientId} set to ${safeQuantity}.`),
               ...current.activityLog,
             ],
           }))
         },
-        adjustInventoryQuantity: (ingredientId, delta, actor) => {
+        adjustInventoryQuantity: async (ingredientId, delta, actor) => {
           const currentEntry = get().inventory.find((entry) => entry.ingredientId === ingredientId)
           const nextQuantity = Math.max(0, (currentEntry?.quantity ?? 0) + delta)
-          get().setInventoryQuantity(ingredientId, nextQuantity, actor)
+          await get().setInventoryQuantity(ingredientId, nextQuantity, actor)
         },
-        setInventoryDefaultQuantity: (ingredientId, quantity, actor) => {
+        setInventoryDefaultQuantity: async (ingredientId, quantity, actor) => {
           const safeQuantity = Math.max(0, quantity)
+          const ingredient = get().ingredients.find((entry) => entry.id === ingredientId)
+          if (!ingredient) {
+            return
+          }
+          await persistIngredientToSupabase({
+            ...ingredient,
+            defaultStockAmount: safeQuantity,
+          })
           commit((current) => ({
+            ingredients: current.ingredients.map((entry) =>
+              entry.id === ingredientId ? { ...entry, defaultStockAmount: safeQuantity } : entry,
+            ),
             inventoryDefaults: current.inventoryDefaults.map((entry) =>
               entry.ingredientId === ingredientId ? { ...entry, quantity: safeQuantity } : entry,
             ),
@@ -1650,9 +1747,12 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
-        applyInventoryDefaults: (actor) => {
+        applyInventoryDefaults: async (actor) => {
+          const current = get()
+          await seedServiceInventoryFromDefaults(current.service.id)
+          const inventory = await loadServiceInventoryFromSupabase(current.service.id, current.ingredients)
           commit((current) => ({
-            inventory: current.inventoryDefaults.map((entry) => ({ ...entry })),
+            inventory,
             activityLog: [
               createActivity('inventory_adjusted', actor, 'Default inventory applied to current service.'),
               ...current.activityLog,
@@ -1835,11 +1935,9 @@ export const usePizzaOpsStore = create<StoreState>()(
         }
       },
       partialize: (state) => ({
-        services: state.services,
         locations: state.locations,
         serviceLocations: state.serviceLocations,
         branding: state.branding,
-        inventoryDefaults: state.inventoryDefaults,
         discountCodes: state.discountCodes,
         discountCodeRedemptions: state.discountCodeRedemptions,
       }),

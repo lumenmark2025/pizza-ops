@@ -49,6 +49,7 @@ export type Ingredient = {
   name: string
   unit: string
   lowStockThreshold: number
+  defaultStockAmount?: number
   active?: boolean
 }
 

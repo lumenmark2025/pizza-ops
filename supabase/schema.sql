@@ -46,6 +46,7 @@ create table if not exists ingredients (
   name text not null,
   unit text not null,
   low_stock_threshold numeric not null default 0,
+  default_stock_amount numeric not null default 0,
   active boolean not null default true
 );
 
@@ -126,9 +127,13 @@ create table if not exists discount_codes (
 );
 
 create table if not exists service_inventory (
+  id uuid not null default gen_random_uuid() unique,
   service_id text references services(id),
   ingredient_id text references ingredients(id),
-  quantity numeric not null,
+  quantity numeric not null default 0,
+  starting_quantity numeric not null default 0,
+  reserved_quantity numeric not null default 0,
+  used_quantity numeric not null default 0,
   primary key (service_id, ingredient_id)
 );
 

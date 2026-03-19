@@ -16,6 +16,7 @@ type IngredientRow = {
   name: string
   unit: string
   low_stock_threshold?: number | null
+  default_stock_amount?: number | null
   track_stock?: boolean | null
   active?: boolean | null
 }
@@ -69,7 +70,19 @@ export type MasterDataLoadResult = {
 }
 
 function isMissingIngredientThresholdColumn(error: { code?: string; message?: string } | null | undefined) {
-  return error?.code === 'PGRST204' && error.message?.includes('low_stock_threshold')
+  return (
+    error?.code === 'PGRST204' ||
+    error?.code === '42703' ||
+    error?.message?.includes('low_stock_threshold') === true
+  )
+}
+
+function isMissingIngredientDefaultStockColumn(error: { code?: string; message?: string } | null | undefined) {
+  return (
+    error?.code === 'PGRST204' ||
+    error?.code === '42703' ||
+    error?.message?.includes('default_stock_amount') === true
+  )
 }
 
 function isMissingModifierColumn(error: { code?: string; message?: string } | null | undefined) {
@@ -113,19 +126,33 @@ async function selectIngredientRows() {
     return { data: null as IngredientRow[] | null, error: null }
   }
 
+  const withDefaultStock = await supabase
+    .from('ingredients')
+    .select('id, name, unit, low_stock_threshold, default_stock_amount, track_stock, active')
+
+  if (!isMissingIngredientDefaultStockColumn(withDefaultStock.error) && !isMissingIngredientThresholdColumn(withDefaultStock.error)) {
+    return withDefaultStock as { data: IngredientRow[] | null; error: typeof withDefaultStock.error }
+  }
+
   const withThreshold = await supabase
     .from('ingredients')
     .select('id, name, unit, low_stock_threshold, track_stock, active')
 
   if (!isMissingIngredientThresholdColumn(withThreshold.error)) {
-    return withThreshold as { data: IngredientRow[] | null; error: typeof withThreshold.error }
+    return {
+      data: ((withThreshold.data ?? []) as IngredientRow[]).map((row) => ({ ...row, default_stock_amount: 0 })),
+      error: withThreshold.error,
+    }
   }
 
   const fallback = await supabase
     .from('ingredients')
     .select('id, name, unit, track_stock, active')
 
-  return fallback as { data: IngredientRow[] | null; error: typeof fallback.error }
+  return {
+    data: ((fallback.data ?? []) as IngredientRow[]).map((row) => ({ ...row, low_stock_threshold: 0, default_stock_amount: 0 })),
+    error: fallback.error,
+  }
 }
 
 async function selectModifierRows() {
@@ -221,6 +248,7 @@ function mapIngredientRow(row: IngredientRow, existing: Ingredient | undefined):
     name: row.name,
     unit: row.unit,
     lowStockThreshold: Number(row.low_stock_threshold ?? existing?.lowStockThreshold ?? 0),
+    defaultStockAmount: Number(row.default_stock_amount ?? existing?.defaultStockAmount ?? 0),
     active: row.active ?? true,
   }
 }
@@ -252,6 +280,7 @@ export async function persistIngredientToSupabase(ingredient: Ingredient): Promi
     name: ingredient.name.trim(),
     unit: ingredient.unit.trim() || 'each',
     low_stock_threshold: Number(ingredient.lowStockThreshold ?? 0),
+    default_stock_amount: Number(ingredient.defaultStockAmount ?? 0),
     track_stock: true,
     active: ingredient.active ?? true,
   }
@@ -259,27 +288,28 @@ export async function persistIngredientToSupabase(ingredient: Ingredient): Promi
   const primary = await supabase
     .from('ingredients')
     .upsert(payload)
-    .select('id, name, unit, low_stock_threshold, track_stock, active')
+    .select('id, name, unit, low_stock_threshold, default_stock_amount, track_stock, active')
     .single()
 
-  if (isMissingIngredientThresholdColumn(primary.error)) {
+  if (isMissingIngredientDefaultStockColumn(primary.error) || isMissingIngredientThresholdColumn(primary.error)) {
     const fallback = await supabase
       .from('ingredients')
       .upsert({
         id: ingredient.id,
         name: ingredient.name.trim(),
         unit: ingredient.unit.trim() || 'each',
+        low_stock_threshold: Number(ingredient.lowStockThreshold ?? 0),
         track_stock: true,
         active: ingredient.active ?? true,
       })
-      .select('id, name, unit, track_stock, active')
+      .select('id, name, unit, low_stock_threshold, track_stock, active')
       .single()
 
     if (fallback.error || !fallback.data) {
       throw new Error(fallback.error.message)
     }
 
-    return mapIngredientRow(fallback.data as IngredientRow, ingredient)
+    return mapIngredientRow({ ...(fallback.data as IngredientRow), default_stock_amount: ingredient.defaultStockAmount ?? 0 }, ingredient)
   }
 
   if (primary.error || !primary.data) {
@@ -614,7 +644,10 @@ export async function loadMasterDataFromSupabase(
       menuItems,
       recipes,
       inventory: existingSnapshot.inventory,
-      inventoryDefaults: existingSnapshot.inventoryDefaults,
+      inventoryDefaults: ingredients.map((ingredient) => ({
+        ingredientId: ingredient.id,
+        quantity: Number(ingredient.defaultStockAmount ?? 0),
+      })),
       modifiers,
       orders: existingSnapshot.orders,
       discountCodes: existingSnapshot.discountCodes,

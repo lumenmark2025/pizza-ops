@@ -13,6 +13,7 @@ function emptyIngredient(): Ingredient {
     name: '',
     unit: 'g',
     lowStockThreshold: 0,
+    defaultStockAmount: 0,
     active: true,
   }
 }
@@ -32,7 +33,6 @@ function buildIngredientId(name: string, editingIngredientId: string | null) {
 export function IngredientsAdminPage() {
   const ingredients = usePizzaOpsStore((state) => state.ingredients)
   const recipes = usePizzaOpsStore((state) => state.recipes)
-  const inventoryDefaults = usePizzaOpsStore((state) => state.inventoryDefaults)
   const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const masterDataLoadWarnings = usePizzaOpsStore((state) => state.masterDataLoadWarnings)
   const upsertIngredient = usePizzaOpsStore((state) => state.upsertIngredient)
@@ -50,9 +50,7 @@ export function IngredientsAdminPage() {
 
   function editIngredient(ingredient: Ingredient) {
     setIngredientDraft(ingredient)
-    setIngredientDefaultQuantity(
-      inventoryDefaults.find((entry) => entry.ingredientId === ingredient.id)?.quantity ?? 0,
-    )
+    setIngredientDefaultQuantity(Number(ingredient.defaultStockAmount ?? 0))
     setEditingIngredientId(ingredient.id)
     setSaveError(null)
   }
@@ -70,6 +68,7 @@ export function IngredientsAdminPage() {
     const next = {
       ...ingredientDraft,
       id: nextId,
+      defaultStockAmount: ingredientDefaultQuantity,
     }
 
     try {
