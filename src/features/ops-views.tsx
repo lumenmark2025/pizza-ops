@@ -36,6 +36,38 @@ const BOARD_STATUSES: Array<'taken' | 'prepping' | 'in_oven' | 'ready'> = [
 const DOUBLE_TAP_WINDOW_MS = 350
 const RECENTLY_CLEARED_LIMIT = 5
 const KDS2_FEATURED_ORDER_COUNT = 4
+const ticketDensityStyles = {
+  compact: {
+    outer: 'rounded-lg',
+    body: 'px-3 py-2.5',
+    headerGap: 'gap-2',
+    metaText: 'text-[11px]',
+    title: 'text-lg',
+    infoGap: 'mt-2',
+    helperText: 'mt-2 text-[10px]',
+    itemList: 'mt-3 space-y-1.5',
+    itemButton: 'rounded-md px-2.5 py-2',
+    itemTitle: 'text-sm',
+    itemNote: 'mt-0.5 text-[11px]',
+    progressPill: 'rounded-md px-2 py-0.5 text-[11px]',
+    actionButton: 'mt-3 h-10 rounded-md text-sm',
+  },
+  comfortable: {
+    outer: 'rounded-lg',
+    body: 'px-3.5 py-3',
+    headerGap: 'gap-2.5',
+    metaText: 'text-xs',
+    title: 'text-xl',
+    infoGap: 'mt-2.5',
+    helperText: 'mt-2 text-[10px]',
+    itemList: 'mt-3 space-y-2',
+    itemButton: 'rounded-md px-3 py-2.5',
+    itemTitle: 'text-sm',
+    itemNote: 'mt-1 text-[11px]',
+    progressPill: 'rounded-md px-2 py-0.5 text-[11px]',
+    actionButton: 'mt-3 h-10 rounded-md text-sm',
+  },
+} as const
 
 function sortOrdersByPromise(orders: Order[]) {
   return [...orders].sort(
@@ -134,6 +166,7 @@ function TicketCard({
   onAction,
   onProgressItem,
   showProgress,
+  density,
 }: {
   order: Order
   customerName: string
@@ -142,37 +175,47 @@ function TicketCard({
   onAction: () => void
   onProgressItem?: (itemId: string) => void
   showProgress?: boolean
+  density: keyof typeof ticketDensityStyles
 }) {
+  const sizing = ticketDensityStyles[density]
+
   return (
-    <Card className={cn('rounded-lg p-3 sm:p-3.5', statusStyles[order.status].card)}>
-      <div className="flex items-start justify-between gap-2">
+    <Card
+      className={cn(
+        'overflow-hidden border-slate-300 bg-white text-slate-950 shadow-none',
+        sizing.outer,
+      )}
+    >
+      <div className={cn('h-1.5', order.status === 'taken' && 'bg-sky-500', order.status === 'prepping' && 'bg-amber-500', order.status === 'in_oven' && 'bg-orange-500', order.status === 'ready' && 'bg-emerald-500', order.status === 'completed' && 'bg-slate-500')} />
+      <div className={sizing.body}>
+      <div className={cn('flex items-start justify-between', sizing.headerGap)}>
         <div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <p className={cn(sizing.metaText, 'font-semibold uppercase tracking-[0.18em] text-slate-500')}>
               {order.reference}
             </p>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">
+            <p className={cn(sizing.metaText, 'font-semibold uppercase tracking-[0.15em] text-slate-500')}>
               {titleCase(order.source)}
             </p>
           </div>
-          <h3 className="mt-1 font-display text-xl font-bold leading-tight">{customerName}</h3>
+          <h3 className={cn('mt-1 font-display font-bold leading-tight text-slate-950', sizing.title)}>{customerName}</h3>
         </div>
         <div className="flex flex-col items-end gap-1">
           <Badge variant={statusStyles[order.status].badge}>{order.status}</Badge>
           {order.pagerNumber ? <Badge variant="slate">Pager {order.pagerNumber}</Badge> : null}
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-600">
+      <div className={cn(sizing.infoGap, 'flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-600')}>
         <span>{formatTime(order.createdAt)} taken</span>
         <span>/</span>
         <span>{formatTime(order.promisedTime)} promised</span>
       </div>
       {showProgress ? (
-        <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+        <p className={cn(sizing.helperText, 'font-semibold uppercase tracking-[0.14em] text-slate-500')}>
           Tap to mark prep. Double-tap the same item to undo.
         </p>
       ) : null}
-      <div className="mt-3 space-y-1.5">
+      <div className={sizing.itemList}>
         {order.items.map((item) => {
           const menuItem = menuItems.find((entry) => entry.id === item.menuItemId)
           const progressCount = item.progressCount ?? 0
@@ -183,22 +226,23 @@ function TicketCard({
               key={item.id}
               type="button"
               className={cn(
-                'w-full rounded-md px-2.5 py-2 text-left transition duration-150',
+                'w-full border border-slate-200 text-left text-slate-950 transition duration-150',
+                sizing.itemButton,
                 showProgress
                   ? isComplete
-                    ? 'bg-emerald-100 ring-2 ring-emerald-400'
-                    : 'bg-white/90 hover:bg-emerald-50 active:scale-[0.99]'
-                  : 'bg-white/90',
+                    ? 'bg-emerald-50 ring-2 ring-emerald-400'
+                    : 'bg-white hover:bg-slate-50 active:scale-[0.99]'
+                  : 'bg-white',
               )}
               onClick={() => showProgress && onProgressItem?.(item.id)}
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold leading-tight">
+                  <p className={cn(sizing.itemTitle, 'font-semibold leading-tight text-slate-950')}>
                     {item.quantity} x {menuItem?.name}
                   </p>
                   {item.modifiers?.length ? (
-                    <p className="mt-0.5 text-[11px] leading-tight text-slate-500">
+                    <p className={cn(sizing.itemNote, 'leading-tight text-slate-500')}>
                       {item.modifiers.map((modifier) => modifier.name).join(', ')}
                     </p>
                   ) : null}
@@ -206,7 +250,8 @@ function TicketCard({
                 {showProgress ? (
                   <div
                     className={cn(
-                      'rounded-md px-2 py-0.5 text-[11px] font-semibold',
+                      'font-semibold',
+                      sizing.progressPill,
                       isComplete
                         ? 'bg-emerald-500 text-white'
                         : 'bg-slate-200 text-slate-700',
@@ -230,9 +275,10 @@ function TicketCard({
           )
         })}
       </div>
-      <Button className="mt-3 h-10 w-full rounded-md text-sm" onClick={onAction}>
+      <Button className={cn('w-full', sizing.actionButton)} onClick={onAction}>
         {actionLabel}
       </Button>
+      </div>
     </Card>
   )
 }
@@ -327,14 +373,16 @@ function KdsQueuePanel({
         <div className="mt-3 flex-1 space-y-2 overflow-y-auto pr-1">
           {orders.length ? (
             orders.map((order) => (
-              <Card key={order.id} className="rounded-md border-white/10 bg-white/10 p-3 text-white shadow-none">
+              <Card key={order.id} className="overflow-hidden rounded-md border-slate-300 bg-white text-slate-950 shadow-none">
+                <div className={cn('h-1.5', order.status === 'taken' && 'bg-sky-500', order.status === 'prepping' && 'bg-amber-500', order.status === 'in_oven' && 'bg-orange-500', order.status === 'ready' && 'bg-emerald-500', order.status === 'completed' && 'bg-slate-500')} />
+                <div className="p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold leading-tight">
+                    <p className="text-sm font-semibold leading-tight text-slate-950">
                       {order.reference}
                       {order.pagerNumber ? ` / Pager ${order.pagerNumber}` : ''}
                     </p>
-                    <p className="mt-0.5 text-xs text-slate-300">
+                    <p className="mt-0.5 text-xs text-slate-600">
                       {getCustomerName(order, customers)}
                     </p>
                   </div>
@@ -342,13 +390,14 @@ function KdsQueuePanel({
                     {titleCase(order.status)}
                   </Badge>
                 </div>
-                <p className="mt-2 text-xs leading-tight text-slate-300">
+                <p className="mt-2 text-xs leading-tight text-slate-700">
                   {getCondensedItemSummary(order, menuItems)}
                 </p>
-                <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                   <span>{getWaitLabel(order.createdAt)}</span>
                   <span>/</span>
                   <span>{formatTime(order.createdAt)} created</span>
+                </div>
                 </div>
               </Card>
             ))
@@ -372,6 +421,7 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
   const recallCompletedOrder = usePizzaOpsStore((state) => state.recallCompletedOrder)
   const [queueOpen, setQueueOpen] = useState(false)
   const tapTimestampsRef = useRef<Record<string, number>>({})
+  const ticketDensity = variant === 'classic' ? 'compact' : 'comfortable'
 
   const activeOrders = sortOrdersByPromise(
     orders.filter((order) => KDS_ACTIVE_STATUSES.includes(order.status)),
@@ -468,6 +518,7 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
                     order={order}
                     customerName={getCustomerName(order, customers)}
                     menuItems={menuItems}
+                    density={ticketDensity}
                     actionLabel={`Move to ${titleCase(nextStatus)}`}
                     onAction={() => updateOrderStatus(order.id, nextStatus)}
                     onProgressItem={(itemId) => handleProgressTap(order.id, itemId)}
@@ -525,6 +576,7 @@ export function ExpeditorPage() {
                 order={order}
                 customerName={customer?.name ?? 'Unknown'}
                 menuItems={menuItems}
+                density="comfortable"
                 actionLabel="Mark completed"
                 onAction={() => updateOrderStatus(order.id, 'completed')}
               />
