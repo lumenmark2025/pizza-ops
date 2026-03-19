@@ -45,6 +45,7 @@ export function ServiceEditPanel() {
   const retryLoyverseSync = usePizzaOpsStore((state) => state.retryLoyverseSync)
   const resetDemo = usePizzaOpsStore((state) => state.resetDemo)
   const updateService = usePizzaOpsStore((state) => state.updateService)
+  const updateOrderStatus = usePizzaOpsStore((state) => state.updateOrderStatus)
   const setInventoryQuantity = usePizzaOpsStore((state) => state.setInventoryQuantity)
   const adjustInventoryQuantity = usePizzaOpsStore((state) => state.adjustInventoryQuantity)
   const applyInventoryDefaults = usePizzaOpsStore((state) => state.applyInventoryDefaults)
@@ -75,6 +76,10 @@ export function ServiceEditPanel() {
   })
 
   const inventorySummary = useMemo(() => getInventorySummary(inventory, recipes, menuItems, orders), [inventory, menuItems, orders, recipes])
+  const sortedOrders = useMemo(
+    () => [...orders].sort((left, right) => new Date(left.promisedTime).getTime() - new Date(right.promisedTime).getTime()),
+    [orders],
+  )
   const location = useMemo(() => locations.find((entry) => entry.id === service.locationId), [locations, service.locationId])
   const moveTarget = useMemo(() => orders.find((entry) => entry.id === moveOrderId), [moveOrderId, orders])
   const availableMoveSlots = useMemo(() => {
@@ -228,6 +233,38 @@ export function ServiceEditPanel() {
           </div>
           <div className="mt-4">
             <Link to="/admin/ingredients"><Button variant="outline">Open ingredients</Button></Link>
+          </div>
+        </Card>
+
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-2xl font-bold">Service orders</h2>
+              <p className="mt-1 text-sm text-slate-500">Durable orders loaded for this service from Supabase-backed order tables.</p>
+            </div>
+            <Badge variant="blue">{sortedOrders.length} orders</Badge>
+          </div>
+          <div className="mt-4 space-y-3">
+            {sortedOrders.length ? sortedOrders.map((order) => (
+              <div key={order.id} className="rounded-2xl border border-slate-200 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{order.reference} · {order.customerName}</p>
+                    <p className="mt-1 text-sm text-slate-500">{formatTime(order.promisedTime)} · {titleCase(order.status)} · {titleCase(order.source)}</p>
+                    <p className="mt-1 text-sm text-slate-500">{order.items.map((item) => `${item.quantity}x ${menuItems.find((entry) => entry.id === item.menuItemId)?.name ?? item.menuItemId}`).join(', ')}</p>
+                    {order.notes ? <p className="mt-2 text-sm text-slate-500">{order.notes}</p> : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {order.status !== 'prepping' ? <Button size="sm" variant="secondary" onClick={() => updateOrderStatus(order.id, 'prepping')}>Prep</Button> : null}
+                    {order.status !== 'in_oven' ? <Button size="sm" variant="secondary" onClick={() => updateOrderStatus(order.id, 'in_oven')}>Oven</Button> : null}
+                    {order.status !== 'ready' ? <Button size="sm" variant="secondary" onClick={() => updateOrderStatus(order.id, 'ready')}>Ready</Button> : null}
+                    {order.status !== 'completed' ? <Button size="sm" onClick={() => updateOrderStatus(order.id, 'completed')}>Complete</Button> : null}
+                  </div>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No durable orders loaded for this service.</div>
+            )}
           </div>
         </Card>
       </div>

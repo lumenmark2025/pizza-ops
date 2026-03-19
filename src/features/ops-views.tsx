@@ -416,6 +416,7 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
   const service = usePizzaOpsStore((state) => state.service)
   const isOnline = usePizzaOpsStore((state) => state.isOnline)
   const realtimeStatus = usePizzaOpsStore((state) => state.realtimeStatus)
+  const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const orders = usePizzaOpsStore((state) => state.orders)
   const customers = usePizzaOpsStore((state) => state.customers)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
@@ -505,6 +506,11 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
       }
     >
       <div className="relative min-h-[calc(100svh-10rem)] overflow-hidden">
+        {masterDataLoadError ? (
+          <Card className="mb-3 rounded-lg border-rose-400/40 bg-rose-500/10 p-4 text-sm text-rose-100 shadow-none">
+            {masterDataLoadError}
+          </Card>
+        ) : null}
         <div
           className={cn(
             'space-y-3 transition-[padding] duration-300',
@@ -571,6 +577,7 @@ export function Kds2Page() {
 }
 
 export function ExpeditorPage() {
+  const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const orders = usePizzaOpsStore((state) => state.orders)
   const customers = usePizzaOpsStore((state) => state.customers)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
@@ -580,16 +587,16 @@ export function ExpeditorPage() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+      {masterDataLoadError ? <Card className="p-4 text-sm font-medium text-rose-600 lg:col-span-2">{masterDataLoadError}</Card> : null}
       <Card className="p-4 sm:p-5">
         <h2 className="font-display text-2xl font-bold">Ready for handoff</h2>
         <div className="mt-4 grid gap-3">
           {readyOrders.map((order) => {
-            const customer = customers.find((entry) => entry.id === order.customerId)
             return (
               <TicketCard
                 key={order.id}
                 order={order}
-                customerName={customer?.name ?? 'Unknown'}
+                customerName={getCustomerName(order, customers)}
                 menuItems={menuItems}
                 density="comfortable"
                 actionLabel="Mark completed"
@@ -603,12 +610,11 @@ export function ExpeditorPage() {
         <h2 className="font-display text-2xl font-bold">Recently completed</h2>
         <div className="mt-4 space-y-3">
           {completedOrders.map((order) => {
-            const customer = customers.find((entry) => entry.id === order.customerId)
             return (
               <div key={order.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-semibold">{customer?.name ?? 'Unknown'}</p>
+                    <p className="font-semibold">{getCustomerName(order, customers)}</p>
                     <p className="text-sm text-slate-500">
                       {order.reference}
                       {order.pagerNumber ? ` / Pager ${order.pagerNumber}` : ''}
@@ -631,6 +637,7 @@ export function CustomerBoardPage() {
   const service = usePizzaOpsStore((state) => state.service)
   const isOnline = usePizzaOpsStore((state) => state.isOnline)
   const realtimeStatus = usePizzaOpsStore((state) => state.realtimeStatus)
+  const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const orders = usePizzaOpsStore((state) => state.orders)
   const customers = usePizzaOpsStore((state) => state.customers)
   const grouped: Record<'taken' | 'prepping' | 'in_oven' | 'ready', Order[]> = {
@@ -659,6 +666,11 @@ export function CustomerBoardPage() {
         </Card>
       }
     >
+      {masterDataLoadError ? (
+        <Card className="mb-4 rounded-lg border-rose-400/40 bg-rose-500/10 p-4 text-sm text-rose-100 shadow-none">
+          {masterDataLoadError}
+        </Card>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-4">
         {BOARD_STATUSES.map((status) => (
           <Card key={status} className={cn('min-h-[24rem] p-4 sm:p-5', statusStyles[status].card)}>

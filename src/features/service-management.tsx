@@ -186,6 +186,7 @@ export function ServicesListPage() {
   const locations = usePizzaOpsStore((state) => state.locations)
   const duplicateService = usePizzaOpsStore((state) => state.duplicateService)
   const archiveService = usePizzaOpsStore((state) => state.archiveService)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const upcomingServices = useMemo(
     () =>
@@ -213,6 +214,7 @@ export function ServicesListPage() {
             </Link>
           </div>
         </div>
+        {actionError ? <p className="mt-4 text-sm font-medium text-rose-600">{actionError}</p> : null}
       </Card>
 
       <div className="grid gap-3">
@@ -242,16 +244,24 @@ export function ServicesListPage() {
                     <Button>Edit service</Button>
                   </Link>
                   <Button variant="secondary" onClick={() => {
-                    void duplicateService(entry.id, 'manager').then((duplicateId) => {
-                      if (duplicateId) {
-                        navigate(`/admin/services/${duplicateId}`)
-                      }
-                    })
+                    setActionError(null)
+                    void duplicateService(entry.id, 'manager')
+                      .then((duplicateId) => {
+                        if (duplicateId) {
+                          navigate(`/admin/services/${duplicateId}`)
+                        }
+                      })
+                      .catch((error) => {
+                        setActionError(error instanceof Error ? error.message : 'Duplicate failed.')
+                      })
                   }}>
                     Duplicate
                   </Button>
                   <Button variant="outline" onClick={() => {
-                    void archiveService(entry.id, 'manager')
+                    setActionError(null)
+                    void archiveService(entry.id, 'manager').catch((error) => {
+                      setActionError(error instanceof Error ? error.message : 'Archive failed.')
+                    })
                   }}>
                     Cancel/archive
                   </Button>

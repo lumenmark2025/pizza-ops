@@ -85,7 +85,7 @@ type StoreState = ServiceSnapshot & {
   lastRemoteSyncAt: string | null
   masterDataLoadError: string | null
   masterDataLoadWarnings: string[]
-  createOrder: (input: CreateOrderInput) => { ok: true; orderId: string; paymentId?: string } | { ok: false; error: string }
+  createOrder: (input: CreateOrderInput) => Promise<{ ok: true; orderId: string; paymentId?: string } | { ok: false; error: string }>
   setOnlineStatus: (status: boolean) => void
   updateOrderStatus: (orderId: string, nextStatus: OrderStatus) => void
   updateOrderItemProgress: (orderId: string, itemId: string, direction?: 'forward' | 'backward') => void
@@ -509,17 +509,13 @@ function createDemoState(): ServiceSnapshot {
 
 async function mirrorOrderToSupabase(order: Order, serviceId: string) {
   if (!supabase) {
-    return
+    throw new Error('Order persistence is unavailable because Supabase is not configured.')
   }
 
-  const orderNumberMatch = order.reference.match(/(\d+)/)
-  const orderNumber = Number(orderNumberMatch?.[1] ?? 0) || Date.now()
-
-  await supabase.from('orders').upsert({
+  const orderWrite = await supabase.from('orders').upsert({
     id: order.id,
     service_id: serviceId,
     customer_id: null,
-    order_number: orderNumber,
     customer_name: order.customerName,
     customer_mobile: order.customerMobile,
     customer_email: order.customerEmail,
@@ -548,7 +544,11 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
     completed_at: order.timestamps.completed_at,
   })
 
-  await supabase.from('order_items').upsert(
+  if (orderWrite.error) {
+    throw new Error(`Order save failed. ${orderWrite.error.message}`)
+  }
+
+  const itemWrite = await supabase.from('order_items').upsert(
     order.items.map((item) => ({
       id: item.id,
       order_id: order.id,
@@ -570,10 +570,18 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
     })),
   )
 
-  await supabase.from('order_item_modifiers').delete().in(
+  if (itemWrite.error) {
+    throw new Error(`Order item save failed. ${itemWrite.error.message}`)
+  }
+
+  const modifierDelete = await supabase.from('order_item_modifiers').delete().in(
     'order_item_id',
     order.items.map((item) => item.id),
   )
+
+  if (modifierDelete.error) {
+    throw new Error(`Order modifier reset failed. ${modifierDelete.error.message}`)
+  }
 
   const modifierRows = order.items.flatMap((item) =>
     (item.modifiers ?? []).map((modifier) => ({
@@ -584,7 +592,10 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
   )
 
   if (modifierRows.length) {
-    await supabase.from('order_item_modifiers').insert(modifierRows)
+    const modifierWrite = await supabase.from('order_item_modifiers').insert(modifierRows)
+    if (modifierWrite.error) {
+      throw new Error(`Order modifier save failed. ${modifierWrite.error.message}`)
+    }
   }
 }
 
@@ -789,6 +800,18 @@ export const usePizzaOpsStore = create<StoreState>()(
         }
       }
 
+      const reloadOrdersForService = async (serviceId: string) => {
+        try {
+          const orders = await loadOrdersForService(serviceId)
+          set({ orders, masterDataLoadError: null })
+          return orders
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Order load failed.'
+          set({ masterDataLoadError: message })
+          throw error
+        }
+      }
+
       return {
         ...getInitialState(),
         isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
@@ -924,7 +947,7 @@ export const usePizzaOpsStore = create<StoreState>()(
 
           return getAvailableSlots(state.service, state.orders, items, state.menuItems)
         },
-        createOrder: (input) => {
+        createOrder: async (input) => {
           const state = get()
           const capacityUnits = input.items.reduce((count, item) => {
             const menuItem = state.menuItems.find((entry) => entry.id === item.menuItemId)
@@ -1098,6 +1121,17 @@ export const usePizzaOpsStore = create<StoreState>()(
                 ]
               : []
 
+          let persistedOrders = state.orders
+          try {
+            await mirrorOrderToSupabase(order, state.service.id)
+            persistedOrders = await reloadOrdersForService(state.service.id)
+          } catch (error) {
+            return {
+              ok: false as const,
+              error: error instanceof Error ? error.message : 'Order save failed.',
+            }
+          }
+
           commit((current) => ({
             customers: existingCustomer
               ? current.customers.map((entry) =>
@@ -1112,7 +1146,7 @@ export const usePizzaOpsStore = create<StoreState>()(
                     : entry,
                 )
               : [...current.customers, customer],
-            orders: [order, ...current.orders],
+            orders: persistedOrders,
             payments: [payment, ...current.payments],
             discountCodes: current.discountCodes.map((entry) =>
               entry.id === appliedOrderDiscount?.discountCodeId
@@ -1121,6 +1155,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             ),
             discountCodeRedemptions: [...redemptions, ...current.discountCodeRedemptions],
             loyverseQueue: [queueItem, ...current.loyverseQueue],
+            masterDataLoadError: null,
             history: [
               {
                 id: randomId('hist'),
@@ -1157,8 +1192,6 @@ export const usePizzaOpsStore = create<StoreState>()(
           if (order.paymentStatus === 'paid' && order.customerEmail) {
             void sendOrderReceipt(order.id)
           }
-
-          void mirrorOrderToSupabase(order, state.service.id)
 
           return {
             ok: true as const,

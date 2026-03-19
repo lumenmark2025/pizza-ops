@@ -1202,7 +1202,7 @@ export function CustomerCheckoutPage() {
       })
     }
 
-    const result = createOrder({
+    const result = await createOrder({
       customerName: draft.customerName,
       mobile: draft.mobile,
       email: draft.email,

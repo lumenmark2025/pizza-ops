@@ -52,6 +52,7 @@ export function OrderEntryPage() {
   const recipes = usePizzaOpsStore((state) => state.recipes)
   const inventory = usePizzaOpsStore((state) => state.inventory)
   const service = usePizzaOpsStore((state) => state.service)
+  const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
@@ -303,7 +304,7 @@ export function OrderEntryPage() {
     setIsSubmitting(true)
     setMessage(null)
 
-    const result = createOrder({
+    const result = await createOrder({
       customerName,
       mobile,
       email,
@@ -362,7 +363,12 @@ export function OrderEntryPage() {
   return (
     <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
       <Card className="p-4 sm:p-5">
-        <ServiceBanner />
+      <ServiceBanner />
+      {masterDataLoadError ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          {masterDataLoadError}
+        </div>
+      ) : null}
         <div className="mt-5 flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Order Entry</p>
