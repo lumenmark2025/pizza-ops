@@ -106,21 +106,21 @@ function DisplayShell({
 }) {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1700px] flex-col px-3 py-4 sm:px-5 lg:px-6">
-        <header className="sticky top-0 z-20 rounded-[28px] border border-white/10 bg-slate-950/95 px-4 py-4 backdrop-blur sm:px-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1800px] flex-col px-2 py-2 sm:px-3 sm:py-3 lg:px-4">
+        <header className="sticky top-0 z-20 rounded-xl border border-white/10 bg-slate-950/95 px-3 py-3 backdrop-blur sm:px-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-orange-200">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-orange-200">
                 {eyebrow}
               </p>
-              <h1 className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">
+              <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">
                 {title}
               </h1>
             </div>
-            {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
+            {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
           </div>
         </header>
-        <div className="mt-4 flex-1">{children}</div>
+        <div className="mt-3 flex-1">{children}</div>
       </div>
     </div>
   )
@@ -144,28 +144,35 @@ function TicketCard({
   showProgress?: boolean
 }) {
   return (
-    <Card className={cn('p-4 sm:p-5', statusStyles[order.status].card)}>
-      <div className="flex items-center justify-between gap-3">
+    <Card className={cn('rounded-lg p-3 sm:p-3.5', statusStyles[order.status].card)}>
+      <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{order.reference}</p>
-          <h3 className="font-display text-2xl font-bold">{customerName}</h3>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              {order.reference}
+            </p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">
+              {titleCase(order.source)}
+            </p>
+          </div>
+          <h3 className="mt-1 font-display text-xl font-bold leading-tight">{customerName}</h3>
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex flex-col items-end gap-1">
           <Badge variant={statusStyles[order.status].badge}>{order.status}</Badge>
           {order.pagerNumber ? <Badge variant="slate">Pager {order.pagerNumber}</Badge> : null}
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-600">
+      <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-600">
         <span>{formatTime(order.createdAt)} taken</span>
         <span>/</span>
         <span>{formatTime(order.promisedTime)} promised</span>
       </div>
       {showProgress ? (
-        <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+        <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
           Tap to mark prep. Double-tap the same item to undo.
         </p>
       ) : null}
-      <div className="mt-4 space-y-2">
+      <div className="mt-3 space-y-1.5">
         {order.items.map((item) => {
           const menuItem = menuItems.find((entry) => entry.id === item.menuItemId)
           const progressCount = item.progressCount ?? 0
@@ -176,7 +183,7 @@ function TicketCard({
               key={item.id}
               type="button"
               className={cn(
-                'w-full rounded-xl px-3 py-3 text-left transition duration-150',
+                'w-full rounded-md px-2.5 py-2 text-left transition duration-150',
                 showProgress
                   ? isComplete
                     ? 'bg-emerald-100 ring-2 ring-emerald-400'
@@ -187,11 +194,11 @@ function TicketCard({
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="font-semibold">
+                  <p className="text-sm font-semibold leading-tight">
                     {item.quantity} x {menuItem?.name}
                   </p>
                   {item.modifiers?.length ? (
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-0.5 text-[11px] leading-tight text-slate-500">
                       {item.modifiers.map((modifier) => modifier.name).join(', ')}
                     </p>
                   ) : null}
@@ -199,7 +206,7 @@ function TicketCard({
                 {showProgress ? (
                   <div
                     className={cn(
-                      'rounded-full px-3 py-1 text-xs font-semibold',
+                      'rounded-md px-2 py-0.5 text-[11px] font-semibold',
                       isComplete
                         ? 'bg-emerald-500 text-white'
                         : 'bg-slate-200 text-slate-700',
@@ -210,9 +217,9 @@ function TicketCard({
                 ) : null}
               </div>
               {showProgress ? (
-                <div className="mt-2 h-2 rounded-full bg-slate-200">
+                <div className="mt-1.5 h-1.5 rounded-sm bg-slate-200">
                   <div
-                    className="h-2 rounded-full bg-emerald-500"
+                    className="h-1.5 rounded-sm bg-emerald-500"
                     style={{
                       width: `${Math.max((progressCount / item.quantity) * 100, 4)}%`,
                     }}
@@ -223,7 +230,7 @@ function TicketCard({
           )
         })}
       </div>
-      <Button className="mt-4 w-full" onClick={onAction}>
+      <Button className="mt-3 h-10 w-full rounded-md text-sm" onClick={onAction}>
         {actionLabel}
       </Button>
     </Card>
@@ -244,36 +251,36 @@ function RecentlyClearedPanel({
   }
 
   return (
-    <Card className="border-white/10 bg-white/10 p-4 text-white sm:p-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <Card className="rounded-lg border-white/10 bg-white/10 p-3 text-white sm:p-3.5">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-200">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-orange-200">
             Recall
           </p>
-          <h2 className="mt-1 font-display text-2xl font-bold">Recently cleared orders</h2>
+          <h2 className="mt-1 font-display text-xl font-bold">Recently cleared orders</h2>
         </div>
         <Button
           variant="secondary"
-          className="bg-white text-slate-950 hover:bg-orange-50"
+          className="h-9 rounded-md bg-white px-3 text-slate-950 hover:bg-orange-50"
           onClick={() => onRecall()}
         >
           <RotateCcw className="mr-2 h-4 w-4" />
           Recall latest
         </Button>
       </div>
-      <div className="mt-4 grid gap-3 xl:grid-cols-2">
+      <div className="mt-3 grid gap-2 xl:grid-cols-2">
         {orders.map((order) => (
           <button
             key={order.id}
             type="button"
-            className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-left transition hover:bg-white/15"
+            className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/10 px-3 py-2 text-left transition hover:bg-white/15"
             onClick={() => onRecall(order.id)}
           >
             <div>
-              <p className="font-semibold">
+              <p className="text-sm font-semibold leading-tight">
                 {order.reference} - {getCustomerName(order, customers)}
               </p>
-              <p className="text-sm text-slate-300">
+              <p className="text-xs text-slate-300">
                 Cleared {formatTime(order.timestamps.completed_at ?? order.createdAt)}
               </p>
             </div>
@@ -301,33 +308,33 @@ function KdsQueuePanel({
   return (
     <aside
       className={cn(
-        'pointer-events-none absolute inset-y-0 right-0 z-30 w-full sm:max-w-md lg:w-[26vw] lg:max-w-[420px] transform transition-transform duration-300',
+        'pointer-events-none absolute inset-y-0 right-0 z-30 w-full sm:max-w-sm lg:w-[24vw] lg:max-w-[360px] transform transition-transform duration-300',
         open ? 'translate-x-0' : 'translate-x-full',
       )}
     >
-      <div className="pointer-events-auto flex h-full flex-col border-l border-white/10 bg-slate-900/96 p-4 shadow-2xl backdrop-blur">
-        <div className="flex items-center justify-between gap-3">
+      <div className="pointer-events-auto flex h-full flex-col border-l border-white/10 bg-slate-900/96 p-3 shadow-2xl backdrop-blur">
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-200">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-orange-200">
               KDS 2 Queue
             </p>
-            <h2 className="mt-1 font-display text-2xl font-bold">Condensed off-screen orders</h2>
+            <h2 className="mt-1 font-display text-xl font-bold">Condensed off-screen orders</h2>
           </div>
-          <Button variant="secondary" className="shrink-0" onClick={onClose}>
+          <Button variant="secondary" className="h-9 shrink-0 rounded-md px-3" onClick={onClose}>
             <PanelRightClose className="h-4 w-4" />
           </Button>
         </div>
-        <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1">
+        <div className="mt-3 flex-1 space-y-2 overflow-y-auto pr-1">
           {orders.length ? (
             orders.map((order) => (
-              <Card key={order.id} className="border-white/10 bg-white/10 p-4 text-white shadow-none">
-                <div className="flex items-start justify-between gap-3">
+              <Card key={order.id} className="rounded-md border-white/10 bg-white/10 p-3 text-white shadow-none">
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-semibold">
+                    <p className="text-sm font-semibold leading-tight">
                       {order.reference}
                       {order.pagerNumber ? ` / Pager ${order.pagerNumber}` : ''}
                     </p>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <p className="mt-0.5 text-xs text-slate-300">
                       {getCustomerName(order, customers)}
                     </p>
                   </div>
@@ -335,10 +342,10 @@ function KdsQueuePanel({
                     {titleCase(order.status)}
                   </Badge>
                 </div>
-                <p className="mt-3 text-sm text-slate-300">
+                <p className="mt-2 text-xs leading-tight text-slate-300">
                   {getCondensedItemSummary(order, menuItems)}
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">
+                <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                   <span>{getWaitLabel(order.createdAt)}</span>
                   <span>/</span>
                   <span>{formatTime(order.createdAt)} created</span>
@@ -346,7 +353,7 @@ function KdsQueuePanel({
               </Card>
             ))
           ) : (
-            <Card className="border-white/10 bg-white/10 p-4 text-sm text-slate-300 shadow-none">
+            <Card className="rounded-md border-white/10 bg-white/10 p-3 text-sm text-slate-300 shadow-none">
               No overflow queue right now.
             </Card>
           )}
@@ -404,21 +411,21 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
       title={variant === 'queue' ? 'KDS 2 Alternative Layout' : 'Live Kitchen Tickets'}
       actions={
         <>
-          <Card className="border-white/10 bg-white/10 px-4 py-3 text-white shadow-none">
-            <div className="flex items-center gap-3">
-              <ChefHat className="h-5 w-5 text-orange-200" />
+          <Card className="rounded-md border-white/10 bg-white/10 px-3 py-2 text-white shadow-none">
+            <div className="flex items-center gap-2">
+              <ChefHat className="h-4 w-4 text-orange-200" />
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-300">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
                   Active tickets
                 </p>
-                <p className="text-lg font-bold">{activeOrders.length}</p>
+                <p className="text-base font-bold leading-none">{activeOrders.length}</p>
               </div>
             </div>
           </Card>
           {variant === 'queue' ? (
             <Button
               variant="secondary"
-              className="bg-white text-slate-950 hover:bg-orange-50"
+              className="h-10 rounded-md bg-white px-3 text-sm text-slate-950 hover:bg-orange-50"
               onClick={() => setQueueOpen((current) => !current)}
             >
               {queueOpen ? (
@@ -435,8 +442,8 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
       <div className="relative min-h-[calc(100svh-10rem)] overflow-hidden">
         <div
           className={cn(
-            'space-y-4 transition-[padding] duration-300',
-            variant === 'queue' && queueOpen ? 'lg:pr-[26vw]' : '',
+            'space-y-3 transition-[padding] duration-300',
+            variant === 'queue' && queueOpen ? 'lg:pr-[24vw]' : '',
           )}
         >
           <RecentlyClearedPanel
@@ -447,8 +454,10 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
           {featuredOrders.length ? (
             <div
               className={cn(
-                'grid gap-4',
-                variant === 'queue' ? 'xl:grid-cols-2' : 'lg:grid-cols-3',
+                'grid gap-3',
+                variant === 'queue'
+                  ? 'md:grid-cols-2 2xl:grid-cols-3'
+                  : 'md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4',
               )}
             >
               {featuredOrders.map((order) => {
@@ -468,7 +477,7 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
               })}
             </div>
           ) : (
-            <Card className="border-white/10 bg-white/10 p-6 text-center text-lg text-slate-200">
+            <Card className="rounded-lg border-white/10 bg-white/10 p-4 text-center text-base text-slate-200">
               No active kitchen tickets.
             </Card>
           )}
