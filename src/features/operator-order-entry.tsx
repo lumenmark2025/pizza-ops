@@ -17,7 +17,7 @@ import {
   normalizeDiscountCodeInput,
   validateDiscountCode,
 } from '../lib/discounts'
-import { MENU_CATEGORY_OPTIONS, getMenuCategoryLabel, isPizzaMenuItem, resolveMenuCategorySlug, sortMenuItems } from '../lib/menu'
+import { MENU_CATEGORY_OPTIONS, isPizzaMenuItem, resolveMenuCategorySlug, sortMenuItems } from '../lib/menu'
 import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
 import { cn, currency, isValidEmail, normalizeEmail, titleCase } from '../lib/utils'
@@ -417,9 +417,6 @@ export function OrderEntryPage() {
           {masterDataLoadError}
         </div>
       ) : null}
-        <div className="mt-5 flex items-center justify-between">
-          <Badge variant="blue">{service.startTime} to {service.lastCollectionTime}</Badge>
-        </div>
         <div className="mt-5 space-y-5">
           {groupedMenuItems.map((category) => (
             <div key={category.slug}>
@@ -432,14 +429,11 @@ export function OrderEntryPage() {
                   const itemAvailability = availability.find((entry) => entry.menuItemId === menuItem.id)
                   return (
                     <Card key={menuItem.id} className={cn('border p-4', itemAvailability?.available ? 'border-white/70' : 'border-rose-200 bg-rose-50/80')}>
-                      <div className="flex items-start justify-between gap-3">
+                      <div>
                         <div>
                           <h3 className="font-display text-xl font-semibold">{menuItem.name}</h3>
                           <p className="mt-1 text-sm text-slate-600">{menuItem.description}</p>
                         </div>
-                        <Badge variant={isPizzaMenuItem(menuItem) ? 'orange' : 'slate'}>
-                          {getMenuCategoryLabel(menuItem.categorySlug, menuItem.category)}
-                        </Badge>
                       </div>
                       <div className="mt-4 flex items-center justify-between">
                         <span className="text-xl font-bold">{currency(menuItem.price)}</span>
