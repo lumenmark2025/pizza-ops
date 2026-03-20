@@ -131,6 +131,16 @@ function ServiceScopedRoute({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+function LegacyExpeditorRedirect() {
+  const { serviceId } = useParams()
+
+  if (!serviceId) {
+    return <Navigate to="/expeditor" replace />
+  }
+
+  return <Navigate to={`/expeditor/${serviceId}`} replace />
+}
+
 function App() {
   const location = useLocation()
   const setOnlineStatus = usePizzaOpsStore((state) => state.setOnlineStatus)
@@ -210,7 +220,7 @@ function App() {
         element={
           <OperationalServicePicker
             title="Choose a service for Expeditor"
-            buildHref={(serviceId) => `/ops/${serviceId}/expeditor`}
+            buildHref={(serviceId) => `/expeditor/${serviceId}`}
           />
         }
       />
@@ -225,7 +235,8 @@ function App() {
       />
       <Route path="/ops/:serviceId/kds" element={<ServiceScopedRoute><KdsPage /></ServiceScopedRoute>} />
       <Route path="/ops/:serviceId/kds-2" element={<ServiceScopedRoute><Kds2Page /></ServiceScopedRoute>} />
-      <Route path="/ops/:serviceId/expeditor" element={<ServiceScopedRoute><ExpeditorPage /></ServiceScopedRoute>} />
+      <Route path="/ops/:serviceId/expeditor" element={<LegacyExpeditorRedirect />} />
+      <Route path="/expeditor/:serviceId" element={<ServiceScopedRoute><ExpeditorPage /></ServiceScopedRoute>} />
       <Route path="/ops/:serviceId/board" element={<ServiceScopedRoute><CustomerBoardPage /></ServiceScopedRoute>} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/admin/locations" element={<LocationsListPage />} />
