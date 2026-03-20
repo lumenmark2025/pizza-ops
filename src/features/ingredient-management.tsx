@@ -36,10 +36,12 @@ export function IngredientsAdminPage() {
   const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const masterDataLoadWarnings = usePizzaOpsStore((state) => state.masterDataLoadWarnings)
   const upsertIngredient = usePizzaOpsStore((state) => state.upsertIngredient)
+  const deleteIngredient = usePizzaOpsStore((state) => state.deleteIngredient)
   const [ingredientDraft, setIngredientDraft] = useState<Ingredient>(emptyIngredient())
   const [ingredientDefaultQuantity, setIngredientDefaultQuantity] = useState(0)
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const activeIngredients = ingredients.filter((ingredient) => ingredient.active !== false)
 
   function resetIngredientForm() {
     setIngredientDraft(emptyIngredient())
@@ -77,6 +79,18 @@ export function IngredientsAdminPage() {
       resetIngredientForm()
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Ingredient save failed.')
+    }
+  }
+
+  async function removeIngredient(ingredient: Ingredient) {
+    try {
+      setSaveError(null)
+      await deleteIngredient(ingredient.id, 'manager')
+      if (editingIngredientId === ingredient.id) {
+        resetIngredientForm()
+      }
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Ingredient delete failed.')
     }
   }
 
@@ -149,10 +163,10 @@ export function IngredientsAdminPage() {
       <Card className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <h3 className="font-display text-2xl font-bold">Current ingredients</h3>
-          <Badge variant="orange">{ingredients.length} ingredients</Badge>
+          <Badge variant="orange">{activeIngredients.length} ingredients</Badge>
         </div>
         <div className="mt-4 space-y-2">
-          {ingredients.map((ingredient) => (
+          {activeIngredients.map((ingredient) => (
             <div key={ingredient.id} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-3">
               <div>
                 <p className="font-semibold">{ingredient.name}</p>
@@ -165,6 +179,9 @@ export function IngredientsAdminPage() {
                 <Badge variant="slate">{recipes.filter((entry) => entry.ingredientId === ingredient.id).length} recipes</Badge>
                 <Button size="sm" variant="outline" onClick={() => editIngredient(ingredient)}>
                   Edit
+                </Button>
+                <Button size="sm" variant="danger" onClick={() => void removeIngredient(ingredient)}>
+                  Delete
                 </Button>
               </div>
             </div>

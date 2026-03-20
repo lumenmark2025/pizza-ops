@@ -319,6 +319,21 @@ export async function persistIngredientToSupabase(ingredient: Ingredient): Promi
   return mapIngredientRow(primary.data as IngredientRow, ingredient)
 }
 
+export async function deleteIngredientFromSupabase(ingredientId: string): Promise<void> {
+  if (!supabase) {
+    throw new Error(getSupabaseClientError('Ingredient delete'))
+  }
+
+  const { error } = await supabase
+    .from('ingredients')
+    .update({ active: false })
+    .eq('id', ingredientId)
+
+  if (error) {
+    throw new Error(`Ingredient delete failed. ${error.message}`)
+  }
+}
+
 export async function persistMenuItemToSupabase(menuItem: MenuItem): Promise<MenuItem | null> {
   if (!supabase) {
     throw new Error(getSupabaseClientError('Menu item write'))
@@ -370,6 +385,21 @@ export async function persistMenuItemToSupabase(menuItem: MenuItem): Promise<Men
   })
 
   return mapMenuItemRow(data as MenuItemRow)
+}
+
+export async function deleteMenuItemFromSupabase(menuItemId: string): Promise<void> {
+  if (!supabase) {
+    throw new Error(getSupabaseClientError('Menu item delete'))
+  }
+
+  const { error } = await supabase
+    .from('menu_items')
+    .update({ active: false })
+    .eq('id', menuItemId)
+
+  if (error) {
+    throw new Error(`Menu item delete failed. ${error.message}`)
+  }
 }
 
 export async function persistMenuItemRecipesToSupabase(

@@ -41,7 +41,17 @@ function OperationalServicePicker({
   buildHref: (serviceId: string) => string
 }) {
   const services = usePizzaOpsStore((state) => state.services)
-  const liveServices = services.filter((entry) => entry.status === 'live' || entry.status === 'paused')
+  const today = new Date()
+  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const maxDate = new Date(todayDate)
+  maxDate.setDate(maxDate.getDate() + 7)
+  const dateKey = (value: Date) => value.toISOString().slice(0, 10)
+  const minServiceDate = dateKey(todayDate)
+  const maxServiceDate = dateKey(maxDate)
+  const visibleServices = services.filter(
+    (entry) => entry.date >= minServiceDate && entry.date <= maxServiceDate,
+  )
+  const liveServices = visibleServices.filter((entry) => entry.status === 'live' || entry.status === 'paused')
 
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
@@ -52,7 +62,7 @@ function OperationalServicePicker({
           Select the service explicitly. Operational screens no longer infer service scope from browser-local state.
         </p>
         <div className="mt-5 grid gap-3">
-          {(liveServices.length ? liveServices : services).map((service) => (
+          {(liveServices.length ? liveServices : visibleServices).map((service) => (
             <Link
               key={service.id}
               to={buildHref(service.id)}

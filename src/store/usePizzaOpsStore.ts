@@ -10,6 +10,8 @@ import {
   validateDiscountCode,
 } from '../lib/discounts'
 import {
+  deleteIngredientFromSupabase,
+  deleteMenuItemFromSupabase,
   deleteModifierFromSupabase,
   loadMasterDataFromSupabase,
   persistIngredientToSupabase,
@@ -108,6 +110,7 @@ type StoreState = ServiceSnapshot & {
   duplicateService: (serviceId: string, actor: string) => Promise<string | null>
   archiveService: (serviceId: string, actor: string) => Promise<void>
   upsertIngredient: (ingredient: Ingredient, defaultQuantity: number, actor: string) => Promise<void>
+  deleteIngredient: (ingredientId: string, actor: string) => Promise<void>
   setInventoryQuantity: (ingredientId: string, quantity: number, actor: string) => Promise<void>
   adjustInventoryQuantity: (ingredientId: string, delta: number, actor: string) => Promise<void>
   setInventoryDefaultQuantity: (ingredientId: string, quantity: number, actor: string) => Promise<void>
@@ -117,6 +120,7 @@ type StoreState = ServiceSnapshot & {
     recipeRows: MenuItemRecipe[],
     actor: string,
   ) => Promise<void>
+  deleteMenuItem: (menuItemId: string, actor: string) => Promise<void>
   upsertDiscountCode: (discountCode: DiscountCode, actor: string) => void
   upsertModifier: (modifier: Modifier, actor: string) => Promise<void>
   deleteModifier: (modifierId: string, actor: string) => Promise<void>
@@ -1829,6 +1833,18 @@ export const usePizzaOpsStore = create<StoreState>()(
             ],
           }))
         },
+        deleteIngredient: async (ingredientId, actor) => {
+          await deleteIngredientFromSupabase(ingredientId)
+          commit((current) => ({
+            ingredients: current.ingredients.map((entry) =>
+              entry.id === ingredientId ? { ...entry, active: false } : entry,
+            ),
+            activityLog: [
+              createActivity('inventory_adjusted', actor, `Deleted ingredient ${ingredientId}.`),
+              ...current.activityLog,
+            ],
+          }))
+        },
         setInventoryQuantity: async (ingredientId, quantity, actor) => {
           const safeQuantity = Math.max(0, quantity)
           const serviceId = get().service.id
@@ -1963,6 +1979,18 @@ export const usePizzaOpsStore = create<StoreState>()(
             recipeCount: canonicalRecipeRows.length,
             existed: exists,
           })
+        },
+        deleteMenuItem: async (menuItemId, actor) => {
+          await deleteMenuItemFromSupabase(menuItemId)
+          commit((current) => ({
+            menuItems: current.menuItems.map((entry) =>
+              entry.id === menuItemId ? { ...entry, active: false } : entry,
+            ),
+            activityLog: [
+              createActivity('service_updated', actor, `Deleted menu item ${menuItemId}.`),
+              ...current.activityLog,
+            ],
+          }))
         },
         upsertDiscountCode: (discountCode, actor) => {
           const exists = get().discountCodes.some((entry) => entry.id === discountCode.id)

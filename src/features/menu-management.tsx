@@ -100,7 +100,11 @@ export function MenuAdminPage() {
   const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const masterDataLoadWarnings = usePizzaOpsStore((state) => state.masterDataLoadWarnings)
   const upsertMenuItem = usePizzaOpsStore((state) => state.upsertMenuItem)
-  const sortedMenuItems = useMemo(() => sortMenuItems(menuItems.map(normalizeMenuItem)), [menuItems])
+  const deleteMenuItem = usePizzaOpsStore((state) => state.deleteMenuItem)
+  const sortedMenuItems = useMemo(
+    () => sortMenuItems(menuItems.map(normalizeMenuItem).filter((item) => item.active !== false)),
+    [menuItems],
+  )
   const [editingMenuItemId, setEditingMenuItemId] = useState<string | null>(sortedMenuItems[0]?.id ?? null)
   const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>(sortedMenuItems[0] ?? emptyDraft())
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -216,6 +220,20 @@ export function MenuAdminPage() {
           active: normalizedItem.active === false,
         }),
       )
+    }
+  }
+
+  async function removeMenuItem() {
+    if (!editingMenuItemId) {
+      return
+    }
+
+    try {
+      setSaveError(null)
+      await deleteMenuItem(editingMenuItemId, 'manager')
+      resetMenuItemForm()
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Menu item delete failed.')
     }
   }
 
@@ -448,6 +466,13 @@ export function MenuAdminPage() {
               </p>
             </div>
             {saveError ? <p className="text-sm font-medium text-rose-600">{saveError}</p> : null}
+            {editingMenuItemId ? (
+              <div className="flex justify-start">
+                <Button variant="danger" onClick={() => void removeMenuItem()}>
+                  Delete menu item
+                </Button>
+              </div>
+            ) : null}
           </div>
         </Card>
 

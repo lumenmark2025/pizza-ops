@@ -17,7 +17,7 @@ import {
   normalizeDiscountCodeInput,
   validateDiscountCode,
 } from '../lib/discounts'
-import { getMenuCategoryLabel, isPizzaMenuItem, sortMenuItems } from '../lib/menu'
+import { MENU_CATEGORY_OPTIONS, getMenuCategoryLabel, isPizzaMenuItem, resolveMenuCategorySlug, sortMenuItems } from '../lib/menu'
 import { getMenuAvailability } from '../lib/slot-engine'
 import { formatTime } from '../lib/time'
 import { cn, currency, isValidEmail, normalizeEmail, titleCase } from '../lib/utils'
@@ -89,6 +89,16 @@ export function OrderEntryPage() {
   const activeMenuItems = useMemo(
     () => sortMenuItems(menuItems.filter((entry) => entry.active !== false)),
     [menuItems],
+  )
+  const groupedMenuItems = useMemo(
+    () =>
+      MENU_CATEGORY_OPTIONS.map((category) => ({
+        ...category,
+        items: activeMenuItems.filter(
+          (item) => resolveMenuCategorySlug(item.categorySlug, item.category) === category.slug,
+        ),
+      })).filter((category) => category.items.length > 0),
+    [activeMenuItems],
   )
   const activePagerNumbers = useMemo(
     () =>
@@ -408,35 +418,41 @@ export function OrderEntryPage() {
         </div>
       ) : null}
         <div className="mt-5 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Order Entry</p>
-            <h2 className="mt-1 font-display text-2xl font-bold">Build baskets fast on tablet</h2>
-          </div>
           <Badge variant="blue">{service.startTime} to {service.lastCollectionTime}</Badge>
         </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          {activeMenuItems.map((menuItem) => {
-            const itemAvailability = availability.find((entry) => entry.menuItemId === menuItem.id)
-            return (
-              <Card key={menuItem.id} className={cn('border p-4', itemAvailability?.available ? 'border-white/70' : 'border-rose-200 bg-rose-50/80')}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-display text-xl font-semibold">{menuItem.name}</h3>
-                    <p className="mt-1 text-sm text-slate-600">{menuItem.description}</p>
-                  </div>
-                  <Badge variant={isPizzaMenuItem(menuItem) ? 'orange' : 'slate'}>
-                    {getMenuCategoryLabel(menuItem.categorySlug, menuItem.category)}
-                  </Badge>
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <span className="text-xl font-bold">{currency(menuItem.price)}</span>
-                  <Button onClick={() => addToBasket(menuItem.id)} disabled={!itemAvailability?.available}>
-                    {itemAvailability?.available ? 'Add' : 'Sold out'}
-                  </Button>
-                </div>
-              </Card>
-            )
-          })}
+        <div className="mt-5 space-y-5">
+          {groupedMenuItems.map((category) => (
+            <div key={category.slug}>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-display text-2xl font-bold">{category.label}</h2>
+                <Badge variant="slate">{category.items.length}</Badge>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {category.items.map((menuItem) => {
+                  const itemAvailability = availability.find((entry) => entry.menuItemId === menuItem.id)
+                  return (
+                    <Card key={menuItem.id} className={cn('border p-4', itemAvailability?.available ? 'border-white/70' : 'border-rose-200 bg-rose-50/80')}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-display text-xl font-semibold">{menuItem.name}</h3>
+                          <p className="mt-1 text-sm text-slate-600">{menuItem.description}</p>
+                        </div>
+                        <Badge variant={isPizzaMenuItem(menuItem) ? 'orange' : 'slate'}>
+                          {getMenuCategoryLabel(menuItem.categorySlug, menuItem.category)}
+                        </Badge>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between">
+                        <span className="text-xl font-bold">{currency(menuItem.price)}</span>
+                        <Button onClick={() => addToBasket(menuItem.id)} disabled={!itemAvailability?.available}>
+                          {itemAvailability?.available ? 'Add' : 'Sold out'}
+                        </Button>
+                      </div>
+                    </Card>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </Card>
 
