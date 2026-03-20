@@ -7,6 +7,7 @@ import {
   PanelRightOpen,
   RotateCcw,
   SmartphoneNfc,
+  X,
 } from 'lucide-react'
 import { Navigate, useParams } from 'react-router-dom'
 import { Badge } from '../components/ui/badge'
@@ -464,6 +465,78 @@ function HistoryDetailPanel({
   )
 }
 
+function KdsHistoryDrawer({
+  open,
+  onClose,
+  recentlyClearedOrders,
+  selectedOrder,
+  selectedOrderId,
+  customers,
+  menuItems,
+  onSelectOrder,
+  onRecall,
+}: {
+  open: boolean
+  onClose: () => void
+  recentlyClearedOrders: Order[]
+  selectedOrder: Order | null
+  selectedOrderId?: string | null
+  customers: ReturnType<typeof usePizzaOpsStore.getState>['customers']
+  menuItems: ReturnType<typeof usePizzaOpsStore.getState>['menuItems']
+  onSelectOrder: (orderId: string) => void
+  onRecall: (orderId?: string) => void
+}) {
+  return (
+    <>
+      <div
+        className={cn(
+          'fixed inset-0 z-40 bg-slate-950/35 transition-opacity',
+          open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={onClose}
+      />
+      <aside
+        className={cn(
+          'fixed inset-y-0 right-0 z-50 flex w-full max-w-md transform flex-col border-l border-white/10 bg-slate-950 shadow-2xl transition-transform duration-200',
+          open ? 'translate-x-0' : 'translate-x-full',
+        )}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-orange-200">
+              Recall
+            </p>
+            <p className="mt-1 font-display text-xl font-bold text-white">History & recall</p>
+          </div>
+          <Button
+            variant="secondary"
+            className="h-11 w-11 rounded-xl p-0"
+            onClick={onClose}
+            aria-label="Close history drawer"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+        <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3 sm:px-4">
+          <RecentlyClearedPanel
+            orders={recentlyClearedOrders}
+            customers={customers}
+            selectedOrderId={selectedOrderId}
+            onSelectOrder={onSelectOrder}
+            onRecall={onRecall}
+          />
+          <HistoryDetailPanel
+            order={selectedOrder}
+            customers={customers}
+            menuItems={menuItems}
+            onRecall={onRecall}
+          />
+        </div>
+      </aside>
+    </>
+  )
+}
+
 function KdsQueuePanel({
   orders,
   customers,
@@ -550,6 +623,7 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
   const updateOrderItemProgress = usePizzaOpsStore((state) => state.updateOrderItemProgress)
   const recallCompletedOrder = usePizzaOpsStore((state) => state.recallCompletedOrder)
   const [queueOpen, setQueueOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [selectedHistoryOrderId, setSelectedHistoryOrderId] = useState<string | null>(null)
   const tapTimestampsRef = useRef<Record<string, number>>({})
   const ticketDensity = variant === 'classic' ? 'compact' : 'comfortable'
@@ -624,11 +698,39 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
               {isOnline ? 'Online' : 'Offline'} · {realtimeStatus === 'subscribed' ? 'Live sync' : realtimeStatus}
             </p>
           </Card>
+          <Button
+            variant="secondary"
+            className="h-10 rounded-md bg-white px-3 text-sm text-slate-950 hover:bg-orange-50"
+            onClick={() =>
+              setHistoryOpen((current) => {
+                const next = !current
+                if (next) {
+                  setQueueOpen(false)
+                }
+                return next
+              })
+            }
+          >
+            {historyOpen ? (
+              <PanelRightClose className="mr-2 h-4 w-4" />
+            ) : (
+              <PanelRightOpen className="mr-2 h-4 w-4" />
+            )}
+            {historyOpen ? 'Hide history' : `History (${recentlyClearedOrders.length})`}
+          </Button>
           {variant === 'queue' ? (
             <Button
               variant="secondary"
               className="h-10 rounded-md bg-white px-3 text-sm text-slate-950 hover:bg-orange-50"
-              onClick={() => setQueueOpen((current) => !current)}
+              onClick={() =>
+                setQueueOpen((current) => {
+                  const next = !current
+                  if (next) {
+                    setHistoryOpen(false)
+                  }
+                  return next
+                })
+              }
             >
               {queueOpen ? (
                 <PanelRightClose className="mr-2 h-4 w-4" />
@@ -653,19 +755,6 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
             variant === 'queue' && queueOpen ? 'lg:pr-[24vw]' : '',
           )}
         >
-          <RecentlyClearedPanel
-            orders={recentlyClearedOrders}
-            customers={customers}
-            selectedOrderId={selectedHistoryOrder?.id ?? null}
-            onSelectOrder={setSelectedHistoryOrderId}
-            onRecall={handleRecall}
-          />
-          <HistoryDetailPanel
-            order={selectedHistoryOrder}
-            customers={customers}
-            menuItems={menuItems}
-            onRecall={handleRecall}
-          />
           {featuredOrders.length ? (
             <div
               className={cn(
@@ -694,10 +783,21 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
             </div>
           ) : (
             <Card className="rounded-lg border-white/10 bg-white/10 p-4 text-center text-base text-slate-200">
-              No active kitchen tickets. Cleared order history stays available above.
+              No active kitchen tickets.
             </Card>
           )}
         </div>
+        <KdsHistoryDrawer
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          recentlyClearedOrders={recentlyClearedOrders}
+          selectedOrder={selectedHistoryOrder}
+          selectedOrderId={selectedHistoryOrder?.id ?? null}
+          customers={customers}
+          menuItems={menuItems}
+          onSelectOrder={setSelectedHistoryOrderId}
+          onRecall={handleRecall}
+        />
         {variant === 'queue' ? (
           <KdsQueuePanel
             orders={queueOrders}
