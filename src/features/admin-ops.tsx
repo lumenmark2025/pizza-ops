@@ -87,6 +87,7 @@ export function ServiceEditPanel() {
     return getAvailableSlots(service, orders.filter((entry) => entry.id !== moveTarget.id), moveTarget.items, menuItems)
   }, [menuItems, moveTarget, orders, service])
   const fallbackMoveSlots = useMemo(() => generateServiceSlots(service), [service])
+  const isEditableOrder = (order: (typeof orders)[number]) => order.status === 'taken'
 
   useEffect(() => {
     setServiceForm({
@@ -162,7 +163,7 @@ export function ServiceEditPanel() {
             <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Service name</span><Input value={serviceForm.name} onChange={(event) => setServiceForm((current) => ({ ...current, name: event.target.value }))} /></label>
             <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Location</span><select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.locationId} onChange={(event) => setServiceForm((current) => ({ ...current, locationId: event.target.value }))}>{locations.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>
             <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Service date</span><Input type="date" value={serviceForm.date} onChange={(event) => setServiceForm((current) => ({ ...current, date: event.target.value }))} /></label>
-            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Service status</span><select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.status} onChange={(event) => setServiceForm((current) => ({ ...current, status: event.target.value as typeof service.status }))}>{['draft', 'live', 'paused', 'closed'].map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select></label>
+            <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Service status</span><select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={serviceForm.status} onChange={(event) => setServiceForm((current) => ({ ...current, status: event.target.value as typeof service.status }))}>{['draft', 'live', 'paused', 'cancelled'].map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select></label>
             <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Start time</span><Input type="time" value={serviceForm.startTime} onChange={(event) => setServiceForm((current) => ({ ...current, startTime: event.target.value }))} /></label>
             <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">End time</span><Input type="time" value={serviceForm.endTime} onChange={(event) => setServiceForm((current) => ({ ...current, endTime: event.target.value }))} /></label>
             <label className="grid gap-2 text-sm"><span className="font-semibold text-slate-600">Last collection slot</span><Input type="time" value={serviceForm.lastCollectionTime} onChange={(event) => setServiceForm((current) => ({ ...current, lastCollectionTime: event.target.value }))} /></label>
@@ -240,7 +241,7 @@ export function ServiceEditPanel() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-2xl font-bold">Service orders</h2>
-              <p className="mt-1 text-sm text-slate-500">Durable orders loaded for this service from Supabase-backed order tables.</p>
+              <p className="mt-1 text-sm text-slate-500">Durable orders loaded for this service from Supabase-backed order tables. Orders stay editable only while still taken. Once prep starts, add extras as a new follow-on order.</p>
             </div>
             <Badge variant="blue">{sortedOrders.length} orders</Badge>
           </div>
@@ -250,11 +251,20 @@ export function ServiceEditPanel() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold">{order.reference} · {order.customerName}</p>
-                    <p className="mt-1 text-sm text-slate-500">{formatTime(order.promisedTime)} · {titleCase(order.status)} · {titleCase(order.source)}</p>
+                    <p className="mt-1 text-sm text-slate-500">{formatTime(order.promisedTime)} · {titleCase(order.status)} · {titleCase(order.source)} · {titleCase(order.paymentMethod.replaceAll('_', ' '))}</p>
                     <p className="mt-1 text-sm text-slate-500">{order.items.map((item) => `${item.quantity}x ${menuItems.find((entry) => entry.id === item.menuItemId)?.name ?? item.menuItemId}`).join(', ')}</p>
                     {order.notes ? <p className="mt-2 text-sm text-slate-500">{order.notes}</p> : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant={isEditableOrder(order) || order.paymentMethod === 'preorder' ? 'green' : 'slate'}>
+                        {isEditableOrder(order) || order.paymentMethod === 'preorder' ? 'Editable now' : 'Locked'}
+                      </Badge>
+                      {!isEditableOrder(order) ? <Badge variant="amber">Use a new add-on order after prep starts</Badge> : null}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Link to={`/ops/${service.id}?customerName=${encodeURIComponent(order.customerName ?? '')}&mobile=${encodeURIComponent(order.customerMobile ?? '')}&email=${encodeURIComponent(order.customerEmail ?? '')}&source=manual&payment=preorder&notes=${encodeURIComponent(`Add-on for ${order.reference}`)}`}>
+                      <Button size="sm" variant="outline">{isEditableOrder(order) ? 'Continue in order entry' : 'New add-on order'}</Button>
+                    </Link>
                     {order.status !== 'prepping' ? <Button size="sm" variant="secondary" onClick={() => updateOrderStatus(order.id, 'prepping')}>Prep</Button> : null}
                     {order.status !== 'in_oven' ? <Button size="sm" variant="secondary" onClick={() => updateOrderStatus(order.id, 'in_oven')}>Oven</Button> : null}
                     {order.status !== 'ready' ? <Button size="sm" variant="secondary" onClick={() => updateOrderStatus(order.id, 'ready')}>Ready</Button> : null}

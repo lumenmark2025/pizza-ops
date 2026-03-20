@@ -86,3 +86,55 @@ export function subscribeToRemoteSnapshot(
     }
   }
 }
+
+export function subscribeToServiceOpsTables(
+  serviceId: string,
+  onChange: (table: 'orders' | 'service_inventory' | 'services') => void,
+  onStatus?: (status: string) => void,
+) {
+  if (!supabase) {
+    return null
+  }
+
+  const channel: RealtimeChannel = supabase
+    .channel(`service-ops-${serviceId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `service_id=eq.${serviceId}`,
+      },
+      () => onChange('orders'),
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'service_inventory',
+        filter: `service_id=eq.${serviceId}`,
+      },
+      () => onChange('service_inventory'),
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'services',
+        filter: `id=eq.${serviceId}`,
+      },
+      () => onChange('services'),
+    )
+    .subscribe((status) => {
+      onStatus?.(status)
+    })
+
+  return () => {
+    if (supabase) {
+      void supabase.removeChannel(channel)
+    }
+  }
+}

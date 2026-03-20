@@ -367,7 +367,7 @@ function useEligibleServices() {
 
     return services.filter((entry) => {
       const serviceDate = new Date(`${entry.date}T00:00:00`)
-      return serviceDate >= today && serviceDate <= maxDate && entry.status !== 'closed'
+      return serviceDate >= today && serviceDate <= maxDate && entry.status !== 'cancelled'
     })
   }, [services])
 }

@@ -1,6 +1,8 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   ChefHat,
+  Maximize2,
+  Minimize2,
   PanelRightClose,
   PanelRightOpen,
   RotateCcw,
@@ -131,25 +133,63 @@ function DisplayShell({
   actions,
   children,
 }: {
-  eyebrow: string
+  eyebrow?: string
   title: string
   actions?: ReactNode
   children: ReactNode
 }) {
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(
+    typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false,
+  )
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement))
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
+  const toggleFullscreen = async () => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+      return
+    }
+
+    await document.documentElement.requestFullscreen()
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto flex min-h-screen w-full max-w-[1800px] flex-col px-2 py-2 sm:px-3 sm:py-3 lg:px-4">
         <header className="sticky top-0 z-20 rounded-xl border border-white/10 bg-slate-950/95 px-3 py-3 backdrop-blur sm:px-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-orange-200">
-                {eyebrow}
-              </p>
-              <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">
+              {eyebrow ? (
+                <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-orange-200">
+                  {eyebrow}
+                </p>
+              ) : null}
+              <h1 className={cn('font-display text-2xl font-bold tracking-tight sm:text-3xl', eyebrow ? 'mt-1' : '')}>
                 {title}
               </h1>
             </div>
-            {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+            <div className="flex flex-wrap gap-2">
+              {actions}
+              <Button
+                variant="secondary"
+                className="h-10 rounded-md bg-white px-3 text-sm text-slate-950 hover:bg-orange-50"
+                onClick={() => void toggleFullscreen()}
+              >
+                {isFullscreen ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}
+                {isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              </Button>
+            </div>
           </div>
         </header>
         <div className="mt-3 flex-1">{children}</div>
@@ -286,10 +326,14 @@ function TicketCard({
 function RecentlyClearedPanel({
   orders,
   customers,
+  selectedOrderId,
+  onSelectOrder,
   onRecall,
 }: {
   orders: Order[]
   customers: ReturnType<typeof usePizzaOpsStore.getState>['customers']
+  selectedOrderId?: string | null
+  onSelectOrder: (orderId: string) => void
   onRecall: (orderId?: string) => void
 }) {
   if (!orders.length) {
@@ -319,8 +363,13 @@ function RecentlyClearedPanel({
           <button
             key={order.id}
             type="button"
-            className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/10 px-3 py-2 text-left transition hover:bg-white/15"
-            onClick={() => onRecall(order.id)}
+            className={cn(
+              'flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition',
+              selectedOrderId === order.id
+                ? 'border-orange-300 bg-white/20'
+                : 'border-white/10 bg-white/10 hover:bg-white/15',
+            )}
+            onClick={() => onSelectOrder(order.id)}
           >
             <div>
               <p className="text-sm font-semibold leading-tight">
@@ -330,10 +379,85 @@ function RecentlyClearedPanel({
                 Cleared {formatTime(order.timestamps.completed_at ?? order.createdAt)}
               </p>
             </div>
-            <RotateCcw className="h-4 w-4 text-orange-200" />
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 rounded-md bg-white px-2.5 text-slate-950 hover:bg-orange-50"
+              onClick={(event) => {
+                event.stopPropagation()
+                onRecall(order.id)
+              }}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
           </button>
         ))}
       </div>
+    </Card>
+  )
+}
+
+function HistoryDetailPanel({
+  order,
+  customers,
+  menuItems,
+  onRecall,
+}: {
+  order: Order | null
+  customers: ReturnType<typeof usePizzaOpsStore.getState>['customers']
+  menuItems: ReturnType<typeof usePizzaOpsStore.getState>['menuItems']
+  onRecall: (orderId?: string) => void
+}) {
+  return (
+    <Card className="rounded-lg border-white/10 bg-white/10 p-4 text-white shadow-none">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-orange-200">
+            History
+          </p>
+          <h2 className="mt-1 font-display text-xl font-bold">
+            {order ? `${order.reference} details` : 'No cleared orders yet'}
+          </h2>
+        </div>
+        {order ? (
+          <Button
+            variant="secondary"
+            className="h-9 rounded-md bg-white px-3 text-slate-950 hover:bg-orange-50"
+            onClick={() => onRecall(order.id)}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Recall order
+          </Button>
+        ) : null}
+      </div>
+      {order ? (
+        <div className="mt-4 space-y-3">
+          <div>
+            <p className="text-lg font-semibold">{getCustomerName(order, customers)}</p>
+            <p className="mt-1 text-sm text-slate-300">
+              Completed {formatTime(order.timestamps.completed_at ?? order.createdAt)} · Promised {formatTime(order.promisedTime)}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            {order.items.map((item) => {
+              const menuItem = menuItems.find((entry) => entry.id === item.menuItemId)
+              return (
+                <div key={item.id} className="rounded-md border border-white/10 bg-black/10 px-3 py-2">
+                  <p className="font-semibold">{item.quantity} x {menuItem?.name ?? item.menuItemId}</p>
+                  {item.modifiers?.length ? (
+                    <p className="mt-1 text-xs text-slate-300">{item.modifiers.map((modifier) => modifier.name).join(', ')}</p>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+          {order.notes ? <p className="text-sm text-slate-300">{order.notes}</p> : null}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-slate-300">
+          Cleared tickets stay visible here for review and recall. This panel does not disappear when the active queue is empty.
+        </p>
+      )}
     </Card>
   )
 }
@@ -424,6 +548,7 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
   const updateOrderItemProgress = usePizzaOpsStore((state) => state.updateOrderItemProgress)
   const recallCompletedOrder = usePizzaOpsStore((state) => state.recallCompletedOrder)
   const [queueOpen, setQueueOpen] = useState(false)
+  const [selectedHistoryOrderId, setSelectedHistoryOrderId] = useState<string | null>(null)
   const tapTimestampsRef = useRef<Record<string, number>>({})
   const ticketDensity = variant === 'classic' ? 'compact' : 'comfortable'
 
@@ -439,6 +564,10 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
         new Date(left.timestamps.completed_at ?? left.createdAt).getTime(),
     )
     .slice(0, RECENTLY_CLEARED_LIMIT)
+  const selectedHistoryOrder =
+    recentlyClearedOrders.find((order) => order.id === selectedHistoryOrderId) ??
+    recentlyClearedOrders[0] ??
+    null
   const featuredOrders =
     variant === 'queue' ? activeOrders.slice(0, KDS2_FEATURED_ORDER_COUNT) : activeOrders
   const queueOrders =
@@ -459,33 +588,38 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
     recallCompletedOrder(orderId)
   }
 
+  useEffect(() => {
+    if (!recentlyClearedOrders.length) {
+      setSelectedHistoryOrderId(null)
+      return
+    }
+
+    if (
+      !selectedHistoryOrderId ||
+      !recentlyClearedOrders.some((order) => order.id === selectedHistoryOrderId)
+    ) {
+      setSelectedHistoryOrderId(recentlyClearedOrders[0].id)
+    }
+  }, [recentlyClearedOrders, selectedHistoryOrderId])
+
   return (
     <DisplayShell
-      eyebrow={variant === 'queue' ? 'Kitchen Display 2' : 'Kitchen Display'}
-      title={variant === 'queue' ? 'KDS 2 Alternative Layout' : 'Live Kitchen Tickets'}
+      title={`${service.name} · ${service.locationName}`}
       actions={
         <>
-          <Card className="rounded-md border-white/10 bg-white/10 px-3 py-2 text-white shadow-none">
-            <div className="flex items-center gap-2">
+          <Card className="min-w-[10rem] rounded-md border-white/10 bg-white/10 px-4 py-3 text-white shadow-none">
+            <div className="flex items-center gap-3">
               <ChefHat className="h-4 w-4 text-orange-200" />
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
-                  Active tickets
-                </p>
-                <p className="text-base font-bold leading-none">{activeOrders.length}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">Active</p>
+                <p className="text-5xl font-bold leading-none">{activeOrders.length}</p>
               </div>
             </div>
           </Card>
-          <Card className="rounded-md border-white/10 bg-white/10 px-3 py-2 text-white shadow-none">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
-              Service
-            </p>
-            <p className="mt-1 text-sm font-semibold">{service.name}</p>
-            <p className="mt-1 text-[11px] text-slate-300">
-              {service.locationName} · {service.date} · {service.id}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-300">
-              {isOnline ? 'online' : 'offline'} / {realtimeStatus}
+          <Card className="rounded-md border-white/10 bg-white/10 px-4 py-3 text-white shadow-none">
+            <p className="text-sm font-semibold">{service.date}</p>
+            <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-300">
+              {isOnline ? 'Online' : 'Offline'} · {realtimeStatus === 'subscribed' ? 'Live sync' : realtimeStatus}
             </p>
           </Card>
           {variant === 'queue' ? (
@@ -520,6 +654,14 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
           <RecentlyClearedPanel
             orders={recentlyClearedOrders}
             customers={customers}
+            selectedOrderId={selectedHistoryOrder?.id ?? null}
+            onSelectOrder={setSelectedHistoryOrderId}
+            onRecall={handleRecall}
+          />
+          <HistoryDetailPanel
+            order={selectedHistoryOrder}
+            customers={customers}
+            menuItems={menuItems}
             onRecall={handleRecall}
           />
           {featuredOrders.length ? (
@@ -550,7 +692,7 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
             </div>
           ) : (
             <Card className="rounded-lg border-white/10 bg-white/10 p-4 text-center text-base text-slate-200">
-              No active kitchen tickets.
+              No active kitchen tickets. Cleared order history stays available above.
             </Card>
           )}
         </div>
@@ -649,19 +791,12 @@ export function CustomerBoardPage() {
 
   return (
     <DisplayShell
-      eyebrow="Customer Board"
-      title="Live Collection Board"
+      title={`${service.name} · Collection Board`}
       actions={
-        <Card className="rounded-md border-white/10 bg-white/10 px-3 py-2 text-white shadow-none">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
-            Service
-          </p>
-          <p className="mt-1 text-sm font-semibold">{service.name}</p>
-          <p className="mt-1 text-[11px] text-slate-300">
-            {service.locationName} · {service.date} · {service.id}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-300">
-            {isOnline ? 'online' : 'offline'} / {realtimeStatus}
+        <Card className="rounded-md border-white/10 bg-white/10 px-4 py-3 text-white shadow-none">
+          <p className="text-sm font-semibold">{service.locationName}</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-300">
+            {service.date} · {isOnline ? 'Online' : 'Offline'} · {realtimeStatus === 'subscribed' ? 'Live sync' : realtimeStatus}
           </p>
         </Card>
       }

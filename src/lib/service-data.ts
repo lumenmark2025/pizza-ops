@@ -135,6 +135,14 @@ function deriveLastCollectionTime(endTimeIso: string, slotMinutes: number) {
   return addMinutes(endTimeIso, -slotMinutes).slice(11, 16)
 }
 
+function normalizePaymentMethod(value?: string | null): Order['paymentMethod'] {
+  if (value === 'terminal') {
+    return 'tap_to_pay'
+  }
+
+  return (value as Order['paymentMethod']) ?? 'manual'
+}
+
 export function mapLocationRow(row: LocationRow): Location {
   return {
     id: row.id,
@@ -501,7 +509,7 @@ export async function loadOrdersForService(serviceId: string) {
       appliedDiscountSummary: row.applied_discount_summary ?? null,
       pricingSummary: row.pricing_summary ?? undefined,
       paymentStatus: (row.payment_status as Order['paymentStatus']) ?? 'pending',
-      paymentMethod: (row.payment_method as Order['paymentMethod']) ?? 'manual',
+      paymentMethod: normalizePaymentMethod(row.payment_method),
       receiptEmailStatus: row.receipt_email_status ?? 'not_requested',
       receiptSentAt: row.receipt_sent_at ?? null,
       receiptLastError: row.receipt_last_error ?? null,

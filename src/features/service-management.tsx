@@ -124,7 +124,7 @@ function ServiceForm({
         <label className="grid gap-2 text-sm">
           <span className="font-semibold text-slate-600">Service status</span>
           <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as ServiceConfig['status'] }))}>
-            {['draft', 'live', 'paused', 'closed'].map((status) => (
+            {['draft', 'live', 'paused', 'cancelled'].map((status) => (
               <option key={status} value={status}>
                 {titleCase(status)}
               </option>
@@ -226,7 +226,7 @@ export function ServicesListPage() {
                 <div className="grid gap-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-display text-2xl font-bold">{entry.name}</h3>
-                    <Badge variant={entry.status === 'live' ? 'green' : entry.status === 'closed' ? 'slate' : 'amber'}>{entry.status}</Badge>
+                    <Badge variant={entry.status === 'live' ? 'green' : entry.status === 'cancelled' ? 'slate' : 'amber'}>{entry.status}</Badge>
                     <Badge variant={entry.acceptPublicOrders ? 'blue' : 'red'}>
                       {entry.acceptPublicOrders ? 'Public ordering open' : 'Public ordering closed'}
                     </Badge>

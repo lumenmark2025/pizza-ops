@@ -6,7 +6,13 @@ export type OrderSource =
   | 'whatsapp'
   | 'messenger'
   | 'manual'
-export type PaymentMethod = 'sumup_online' | 'cash' | 'terminal' | 'manual'
+export type PaymentMethod =
+  | 'sumup_online'
+  | 'cash'
+  | 'terminal'
+  | 'manual'
+  | 'tap_to_pay'
+  | 'preorder'
 export type PaymentStatus = 'pending' | 'authorized' | 'paid' | 'failed' | 'refunded'
 export type SyncStatus = 'pending' | 'processing' | 'synced' | 'failed'
 export type DiscountType = 'percentage' | 'fixed_amount'
@@ -20,7 +26,7 @@ export type ServiceConfig = {
   locationName: string
   locationId: string
   date: string
-  status: 'draft' | 'live' | 'paused' | 'closed'
+  status: 'draft' | 'live' | 'paused' | 'cancelled'
   acceptPublicOrders: boolean
   publicOrderClosureReason: string | null
   startTime: string

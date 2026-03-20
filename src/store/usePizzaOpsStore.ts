@@ -36,6 +36,7 @@ import {
   loadRemoteSnapshot,
   persistRemoteSnapshot,
   subscribeToRemoteSnapshot,
+  subscribeToServiceOpsTables,
 } from '../lib/realtime-state'
 import { supabase } from '../lib/supabase'
 import { addMinutes, combineDateAndTime, formatTime, toIsoNow } from '../lib/time'
@@ -156,6 +157,8 @@ let hydrateRemotePromise: Promise<void> | null = null
 let hydrateRemoteServiceId: string | null = null
 let activeRealtimeServiceId: string | null = null
 let snapshotPersistTimer: ReturnType<typeof setTimeout> | null = null
+let stopOpsTableSubscription: null | (() => void) = null
+let opsTableRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
 const statusTimestampField: Record<OrderStatus, keyof Order['timestamps']> = {
   taken: 'taken_at',
@@ -812,6 +815,33 @@ export const usePizzaOpsStore = create<StoreState>()(
         }
       }
 
+      const refreshOperationalTablesForService = async (serviceId: string) => {
+        try {
+          const state = get()
+          const [services, orders, inventory] = await Promise.all([
+            loadServicesFromSupabase(),
+            loadOrdersForService(serviceId),
+            loadServiceInventoryFromSupabase(serviceId, state.ingredients),
+          ])
+          const nextService =
+            services.find((entry) => entry.id === serviceId) ?? state.service
+
+          set({
+            services,
+            service: nextService,
+            orders,
+            inventory,
+            lastRemoteSyncAt: toIsoNow(),
+            masterDataLoadError: null,
+          })
+        } catch (error) {
+          set({
+            masterDataLoadError:
+              error instanceof Error ? error.message : 'Realtime refresh failed.',
+          })
+        }
+      }
+
       return {
         ...getInitialState(),
         isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
@@ -899,6 +929,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           }
 
           stopRealtimeSubscription?.()
+          stopOpsTableSubscription?.()
           activeRealtimeServiceId = serviceId
           set({ realtimeStatus: 'connecting' })
           const stop = subscribeToRemoteSnapshot(
@@ -929,12 +960,41 @@ export const usePizzaOpsStore = create<StoreState>()(
               })
             },
           )
+          const stopOps = subscribeToServiceOpsTables(
+            serviceId,
+            () => {
+              if (opsTableRefreshTimer) {
+                clearTimeout(opsTableRefreshTimer)
+              }
+
+              opsTableRefreshTimer = setTimeout(() => {
+                void refreshOperationalTablesForService(serviceId)
+              }, 60)
+            },
+            (status) => {
+              set({
+                realtimeStatus:
+                  status === 'SUBSCRIBED'
+                    ? 'subscribed'
+                    : status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED'
+                      ? 'error'
+                      : 'connecting',
+              })
+            },
+          )
           stopRealtimeSubscription = stop
+          stopOpsTableSubscription = stopOps
           return () => {
             stop?.()
+            stopOps?.()
+            if (opsTableRefreshTimer) {
+              clearTimeout(opsTableRefreshTimer)
+              opsTableRefreshTimer = null
+            }
             if (activeRealtimeServiceId === serviceId) {
               activeRealtimeServiceId = null
               stopRealtimeSubscription = null
+              stopOpsTableSubscription = null
             }
             set({ realtimeStatus: 'idle' })
           }
@@ -1030,7 +1090,11 @@ export const usePizzaOpsStore = create<StoreState>()(
           const totalAmount = pricingSummary.finalTotalAmount
 
           const paymentStatus: PaymentStatus =
-            input.paymentMethod === 'cash' || input.paymentMethod === 'terminal' ? 'paid' : 'pending'
+            input.paymentMethod === 'cash' ||
+            input.paymentMethod === 'terminal' ||
+            input.paymentMethod === 'tap_to_pay'
+              ? 'paid'
+              : 'pending'
           const orderNumber = 100 + state.orders.length + 1
 
           const order: Order = {
@@ -1085,8 +1149,13 @@ export const usePizzaOpsStore = create<StoreState>()(
             status: paymentStatus,
             amount: totalAmount,
             providerReference:
-              input.paymentMethod === 'sumup_online' ? paymentId : `LOCAL-${order.reference}`,
-            checkoutUrl: input.paymentMethod === 'sumup_online' ? `/payments/${paymentId}` : undefined,
+              input.paymentMethod === 'sumup_online'
+                ? paymentId
+                : input.paymentMethod === 'preorder'
+                  ? `PREORDER-${order.reference}`
+                  : `LOCAL-${order.reference}`,
+            checkoutUrl:
+              input.paymentMethod === 'sumup_online' ? `/payments/${paymentId}` : undefined,
             createdAt: now,
             updatedAt: now,
           }
@@ -1713,7 +1782,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             ...target,
             locationId: resolvedLocation.locationId,
             locationName: resolvedLocation.locationName,
-            status: 'closed',
+            status: 'cancelled',
             acceptPublicOrders: false,
           })
 

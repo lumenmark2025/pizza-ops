@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -24,7 +25,15 @@ import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { AppliedDiscountSummary, DiscountCode, Modifier, OrderItem, OrderSource, PaymentMethod } from '../types/domain'
 
 const orderSources: OrderSource[] = ['walkup', 'web', 'phone', 'whatsapp', 'messenger', 'manual']
-const paymentMethods: PaymentMethod[] = ['sumup_online', 'cash', 'terminal', 'manual']
+const paymentMethods: PaymentMethod[] = ['sumup_online', 'tap_to_pay', 'cash', 'preorder']
+const paymentMethodLabels: Record<PaymentMethod, string> = {
+  sumup_online: 'SumUp',
+  tap_to_pay: 'Tap to Pay',
+  cash: 'Cash',
+  preorder: 'Preorder',
+  terminal: 'Tap to Pay',
+  manual: 'Manual',
+}
 
 function ServiceBanner() {
   const service = usePizzaOpsStore((state) => state.service)
@@ -44,6 +53,7 @@ function ServiceBanner() {
 }
 
 export function OrderEntryPage() {
+  const [searchParams] = useSearchParams()
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const discountCodes = usePizzaOpsStore((state) => state.discountCodes)
   const modifiers = usePizzaOpsStore((state) => state.modifiers)
@@ -128,6 +138,34 @@ export function OrderEntryPage() {
       setSelectedTime(availableSlots[0].promisedTime)
     }
   }, [availableSlots, selectedTime])
+
+  useEffect(() => {
+    const prefillName = searchParams.get('customerName')
+    const prefillMobile = searchParams.get('mobile')
+    const prefillEmail = searchParams.get('email')
+    const prefillNotes = searchParams.get('notes')
+    const prefillSource = searchParams.get('source')
+    const prefillPayment = searchParams.get('payment')
+
+    if (prefillName) {
+      setCustomerName(prefillName)
+    }
+    if (prefillMobile) {
+      setMobile(prefillMobile)
+    }
+    if (prefillEmail) {
+      setEmail(prefillEmail)
+    }
+    if (prefillNotes) {
+      setNotes(prefillNotes)
+    }
+    if (prefillSource && orderSources.includes(prefillSource as OrderSource)) {
+      setSource(prefillSource as OrderSource)
+    }
+    if (prefillPayment && paymentMethods.includes(prefillPayment as PaymentMethod)) {
+      setPaymentMethod(prefillPayment as PaymentMethod)
+    }
+  }, [searchParams])
 
   function addToBasket(menuItemId: string) {
     setBasket((current) => [
@@ -459,7 +497,7 @@ export function OrderEntryPage() {
               {orderSources.map((option) => <option key={option} value={option}>{titleCase(option)}</option>)}
             </select>
             <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}>
-              {paymentMethods.map((option) => <option key={option} value={option}>{titleCase(option)}</option>)}
+              {paymentMethods.map((option) => <option key={option} value={option}>{paymentMethodLabels[option]}</option>)}
             </select>
           </div>
           {source === 'walkup' ? (
@@ -579,7 +617,7 @@ export function OrderEntryPage() {
             </p>
           ) : null}
           <Button className="mt-4 w-full" size="lg" onClick={() => void submitOrder()} disabled={isSubmitting}>
-            {isSubmitting ? 'Starting checkout...' : paymentMethod === 'sumup_online' ? 'Pay with SumUp' : 'Place order'}
+            {isSubmitting ? 'Starting checkout...' : paymentMethod === 'sumup_online' ? 'Pay with SumUp' : paymentMethod === 'preorder' ? 'Create preorder' : 'Place order'}
           </Button>
           {message ? <p className="mt-3 text-sm text-orange-200">{message}</p> : null}
         </div>

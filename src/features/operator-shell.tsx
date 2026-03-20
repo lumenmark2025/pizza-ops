@@ -73,7 +73,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 </p>
                 <h1 className="mt-1 font-display text-3xl font-bold tracking-tight">{service.name}</h1>
                 <p className="mt-2 text-sm text-slate-300">
-                  {service.locationName} · {service.date} · service {service.id}
+                  {service.locationName} · {service.date}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -81,17 +81,19 @@ export function AppShell({ children }: PropsWithChildren) {
                 <MetricChip icon={ReceiptText} label={`${loyverseQueue.filter((entry) => entry.status === 'failed').length} sync issues`} tone="warn" />
                 <MetricChip icon={isOnline ? Wifi : WifiOff} label={isOnline ? 'Online' : 'Offline cache mode'} tone={isOnline ? 'ok' : 'warn'} />
                 <MetricChip icon={TimerReset} label={service.delayMinutes ? `${service.delayMinutes}m delay` : titleCase(service.status)} tone={service.status === 'paused' ? 'warn' : 'ok'} />
-                <MetricChip
-                  icon={LoaderCircle}
-                  label={
-                    realtimeStatus === 'subscribed'
-                      ? 'Realtime live'
-                      : realtimeStatus === 'error'
-                        ? 'Realtime error'
-                        : 'Realtime connecting'
-                  }
-                  tone={realtimeStatus === 'error' ? 'warn' : 'ok'}
-                />
+                {!SAFE_MODE ? (
+                  <MetricChip
+                    icon={LoaderCircle}
+                    label={
+                      realtimeStatus === 'subscribed'
+                        ? 'Realtime live'
+                        : realtimeStatus === 'error'
+                          ? 'Realtime error'
+                          : 'Realtime connecting'
+                    }
+                    tone={realtimeStatus === 'error' ? 'warn' : 'ok'}
+                  />
+                ) : null}
               </div>
             </div>
             {SAFE_MODE ? (
