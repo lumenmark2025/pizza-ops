@@ -12,6 +12,7 @@ import { Navigate, useParams } from 'react-router-dom'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { isReleasedToOps } from '../lib/order-flow'
 import { formatTime } from '../lib/time'
 import { cn, currency, titleCase } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
@@ -553,11 +554,11 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
   const ticketDensity = variant === 'classic' ? 'compact' : 'comfortable'
 
   const activeOrders = sortOrdersByPromise(
-    orders.filter((order) => KDS_ACTIVE_STATUSES.includes(order.status)),
+    orders.filter((order) => isReleasedToOps(order) && KDS_ACTIVE_STATUSES.includes(order.status)),
   )
-  const readyOrders = sortOrdersByPromise(orders.filter((order) => order.status === 'ready'))
+  const readyOrders = sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'ready'))
   const recentlyClearedOrders = [...orders]
-    .filter((order) => order.status === 'completed')
+    .filter((order) => isReleasedToOps(order) && order.status === 'completed')
     .sort(
       (left, right) =>
         new Date(right.timestamps.completed_at ?? right.createdAt).getTime() -
@@ -724,8 +725,8 @@ export function ExpeditorPage() {
   const customers = usePizzaOpsStore((state) => state.customers)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const updateOrderStatus = usePizzaOpsStore((state) => state.updateOrderStatus)
-  const readyOrders = orders.filter((order) => order.status === 'ready')
-  const completedOrders = orders.filter((order) => order.status === 'completed').slice(0, 6)
+  const readyOrders = orders.filter((order) => isReleasedToOps(order) && order.status === 'ready')
+  const completedOrders = orders.filter((order) => isReleasedToOps(order) && order.status === 'completed').slice(0, 6)
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -783,10 +784,10 @@ export function CustomerBoardPage() {
   const orders = usePizzaOpsStore((state) => state.orders)
   const customers = usePizzaOpsStore((state) => state.customers)
   const grouped: Record<'taken' | 'prepping' | 'in_oven' | 'ready', Order[]> = {
-    taken: sortOrdersByPromise(orders.filter((order) => order.status === 'taken')),
-    prepping: sortOrdersByPromise(orders.filter((order) => order.status === 'prepping')),
-    in_oven: sortOrdersByPromise(orders.filter((order) => order.status === 'in_oven')),
-    ready: sortOrdersByPromise(orders.filter((order) => order.status === 'ready')),
+    taken: sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'taken')),
+    prepping: sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'prepping')),
+    in_oven: sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'in_oven')),
+    ready: sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'ready')),
   }
 
   return (

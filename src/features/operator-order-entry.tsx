@@ -6,6 +6,7 @@ import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { createHostedSumUpCheckout } from '../integrations/sumup'
+import { type AdminOrderEntryPaymentOption } from '../lib/order-flow'
 import {
   applyItemDiscount,
   buildCodeDiscountSummary,
@@ -25,14 +26,13 @@ import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { AppliedDiscountSummary, DiscountCode, Modifier, OrderItem, OrderSource, PaymentMethod } from '../types/domain'
 
 const orderSources: OrderSource[] = ['walkup', 'web', 'phone', 'whatsapp', 'messenger', 'manual']
-const paymentMethods: PaymentMethod[] = ['sumup_online', 'tap_to_pay', 'cash', 'preorder']
-const paymentMethodLabels: Record<PaymentMethod, string> = {
+const paymentMethods: AdminOrderEntryPaymentOption[] = ['sumup_online', 'tap_to_pay', 'cash', 'preorder']
+const paymentMethodLabels: Record<AdminOrderEntryPaymentOption, string> = {
   sumup_online: 'SumUp',
   tap_to_pay: 'Tap to Pay',
   cash: 'Cash',
   preorder: 'Preorder',
-  terminal: 'Tap to Pay',
-  manual: 'Manual',
+  manual: 'Tap to Pay',
 }
 
 function ServiceBanner() {
@@ -70,7 +70,7 @@ export function OrderEntryPage() {
   const [mobile, setMobile] = useState('')
   const [email, setEmail] = useState('')
   const [source, setSource] = useState<OrderSource>('walkup')
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('sumup_online')
+  const [paymentMethod, setPaymentMethod] = useState<AdminOrderEntryPaymentOption>('sumup_online')
   const [notes, setNotes] = useState('')
   const [basket, setBasket] = useState<OrderItem[]>([])
   const [selectedTime, setSelectedTime] = useState('')
@@ -172,8 +172,8 @@ export function OrderEntryPage() {
     if (prefillSource && orderSources.includes(prefillSource as OrderSource)) {
       setSource(prefillSource as OrderSource)
     }
-    if (prefillPayment && paymentMethods.includes(prefillPayment as PaymentMethod)) {
-      setPaymentMethod(prefillPayment as PaymentMethod)
+    if (prefillPayment && paymentMethods.includes(prefillPayment as AdminOrderEntryPaymentOption)) {
+      setPaymentMethod(prefillPayment as AdminOrderEntryPaymentOption)
     }
   }, [searchParams])
 
@@ -352,6 +352,13 @@ export function OrderEntryPage() {
     setIsSubmitting(true)
     setMessage(null)
 
+    const submittedPaymentMethod: PaymentMethod | null =
+      paymentMethod === 'preorder'
+        ? null
+        : paymentMethod === 'tap_to_pay'
+          ? 'manual'
+          : paymentMethod
+
     const result = await createOrder({
       customerName,
       mobile,
@@ -359,7 +366,8 @@ export function OrderEntryPage() {
       source,
       promisedTime: selectedTime,
       items: basket,
-      paymentMethod,
+      paymentMethod: submittedPaymentMethod,
+      deferPayment: paymentMethod === 'preorder',
       notes,
       pagerNumber: source === 'walkup' && pagerNumber ? Number(pagerNumber) : null,
       appliedOrderDiscount: resolvedOrderDiscount,
@@ -506,7 +514,7 @@ export function OrderEntryPage() {
             <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={source} onChange={(event) => setSource(event.target.value as OrderSource)}>
               {orderSources.map((option) => <option key={option} value={option}>{titleCase(option)}</option>)}
             </select>
-            <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}>
+            <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as AdminOrderEntryPaymentOption)}>
               {paymentMethods.map((option) => <option key={option} value={option}>{paymentMethodLabels[option]}</option>)}
             </select>
           </div>

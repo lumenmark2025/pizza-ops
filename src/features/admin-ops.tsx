@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
+import { getOrderPaymentLabel, isDeferredPreorder } from '../lib/order-flow'
 import { isUuidValue } from '../lib/service-data'
 import { generateServiceSlots, getAvailableSlots, getInventorySummary } from '../lib/slot-engine'
 import { formatDateTime, formatTime } from '../lib/time'
@@ -50,6 +51,7 @@ export function ServiceEditPanel() {
   const adjustInventoryQuantity = usePizzaOpsStore((state) => state.adjustInventoryQuantity)
   const applyInventoryDefaults = usePizzaOpsStore((state) => state.applyInventoryDefaults)
   const assignPager = usePizzaOpsStore((state) => state.assignPager)
+  const collectOrderPayment = usePizzaOpsStore((state) => state.collectOrderPayment)
 
   const [delayMinutes, setDelayMinutes] = useState(10)
   const [pauseMinutes, setPauseMinutes] = useState(15)
@@ -60,6 +62,9 @@ export function ServiceEditPanel() {
   const [moveWarning, setMoveWarning] = useState<string | null>(null)
   const [pagerOrderId, setPagerOrderId] = useState(orders[0]?.id ?? '')
   const [pagerValue, setPagerValue] = useState('')
+  const [recalledOrderId, setRecalledOrderId] = useState('')
+  const [recalledPagerValue, setRecalledPagerValue] = useState('')
+  const [orderActionMessage, setOrderActionMessage] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [serviceForm, setServiceForm] = useState({
     name: service.name,
@@ -88,6 +93,14 @@ export function ServiceEditPanel() {
   }, [menuItems, moveTarget, orders, service])
   const fallbackMoveSlots = useMemo(() => generateServiceSlots(service), [service])
   const isEditableOrder = (order: (typeof orders)[number]) => order.status === 'taken'
+  const preorderOrders = useMemo(
+    () => sortedOrders.filter((order) => isDeferredPreorder(order)),
+    [sortedOrders],
+  )
+  const recalledOrder = useMemo(
+    () => preorderOrders.find((order) => order.id === recalledOrderId) ?? null,
+    [preorderOrders, recalledOrderId],
+  )
 
   useEffect(() => {
     setServiceForm({
@@ -130,6 +143,19 @@ export function ServiceEditPanel() {
       setPagerOrderId(orders[0].id)
     }
   }, [moveOrderId, orders, pagerOrderId])
+
+  useEffect(() => {
+    if (!preorderOrders.length) {
+      setRecalledOrderId('')
+      setRecalledPagerValue('')
+      return
+    }
+
+    if (!preorderOrders.some((order) => order.id === recalledOrderId)) {
+      setRecalledOrderId(preorderOrders[0].id)
+      setRecalledPagerValue(preorderOrders[0].pagerNumber ? String(preorderOrders[0].pagerNumber) : '')
+    }
+  }, [preorderOrders, recalledOrderId])
 
   function handleMove(override: boolean) {
     const result = moveOrder(moveOrderId, moveTime, moveReason || 'Manual move', override)
@@ -240,8 +266,76 @@ export function ServiceEditPanel() {
         <Card className="p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
+              <h2 className="font-display text-2xl font-bold">Preorder recall desk</h2>
+              <p className="mt-1 text-sm text-slate-500">Use this to find unpaid preorders, assign a pager if needed, then capture payment and release them into the live kitchen workflow.</p>
+            </div>
+            <Badge variant="amber">{preorderOrders.length} preorders</Badge>
+          </div>
+          {preorderOrders.length ? (
+            <div className="mt-4 grid gap-3">
+              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={recalledOrderId} onChange={(event) => {
+                const nextOrder = preorderOrders.find((order) => order.id === event.target.value)
+                setRecalledOrderId(event.target.value)
+                setRecalledPagerValue(nextOrder?.pagerNumber ? String(nextOrder.pagerNumber) : '')
+                setOrderActionMessage(null)
+              }}>
+                {preorderOrders.map((order) => <option key={order.id} value={order.id}>{order.reference} - {order.customerName} - {formatTime(order.promisedTime)}</option>)}
+              </select>
+              {recalledOrder ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{recalledOrder.reference} · {recalledOrder.customerName}</p>
+                      <p className="mt-1 text-sm text-slate-600">{recalledOrder.items.map((item) => `${item.quantity}x ${menuItems.find((entry) => entry.id === item.menuItemId)?.name ?? item.menuItemId}`).join(', ')}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Badge variant="amber">Preorder</Badge>
+                        <Badge variant="slate">Unpaid</Badge>
+                        <Badge variant={recalledOrder.pagerNumber ? 'blue' : 'slate'}>
+                          {recalledOrder.pagerNumber ? `Pager ${recalledOrder.pagerNumber}` : 'No pager assigned'}
+                        </Badge>
+                      </div>
+                    </div>
+                    <Link to={`/ops/${service.id}?customerName=${encodeURIComponent(recalledOrder.customerName ?? '')}&mobile=${encodeURIComponent(recalledOrder.customerMobile ?? '')}&email=${encodeURIComponent(recalledOrder.customerEmail ?? '')}&source=manual&notes=${encodeURIComponent(`Add-on for ${recalledOrder.reference}`)}`}>
+                      <Button size="sm" variant="outline">Open add-on order</Button>
+                    </Link>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+                    <Input value={recalledPagerValue} placeholder="Pager number (optional)" onChange={(event) => setRecalledPagerValue(event.target.value)} />
+                    <Button variant="outline" onClick={() => {
+                      setOrderActionMessage(null)
+                      void assignPager(recalledOrder.id, recalledPagerValue ? Number(recalledPagerValue) : null, 'manager').then((result) => {
+                        setOrderActionMessage(result.ok ? 'Pager saved.' : result.error ?? 'Pager save failed.')
+                      })
+                    }}>Save pager</Button>
+                    <Button variant="secondary" onClick={() => {
+                      setOrderActionMessage(null)
+                      void collectOrderPayment(recalledOrder.id, { paymentMethod: 'cash', actor: 'manager' }).then((result) => {
+                        setOrderActionMessage(result.ok ? 'Preorder paid with cash and released to ops screens.' : result.error)
+                      })
+                    }}>Take cash</Button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={() => {
+                      setOrderActionMessage(null)
+                      void collectOrderPayment(recalledOrder.id, { paymentMethod: 'manual', actor: 'manager' }).then((result) => {
+                        setOrderActionMessage(result.ok ? 'Preorder paid by tap to pay and released to ops screens.' : result.error)
+                      })
+                    }}>Take tap to pay</Button>
+                  </div>
+                  {orderActionMessage ? <p className="mt-3 text-sm font-medium text-slate-600">{orderActionMessage}</p> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No unpaid preorders for this service.</div>
+          )}
+        </Card>
+
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
               <h2 className="font-display text-2xl font-bold">Service orders</h2>
-              <p className="mt-1 text-sm text-slate-500">Durable orders loaded for this service from Supabase-backed order tables. Orders stay editable only while still taken. Once prep starts, add extras as a new follow-on order.</p>
+              <p className="mt-1 text-sm text-slate-500">Durable orders loaded for this service from Supabase-backed order tables. Unpaid preorders stay out of KDS/customer-board until payment is captured here.</p>
             </div>
             <Badge variant="blue">{sortedOrders.length} orders</Badge>
           </div>
@@ -251,18 +345,20 @@ export function ServiceEditPanel() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold">{order.reference} · {order.customerName}</p>
-                    <p className="mt-1 text-sm text-slate-500">{formatTime(order.promisedTime)} · {titleCase(order.status)} · {titleCase(order.source)} · {titleCase(order.paymentMethod.replaceAll('_', ' '))}</p>
+                    <p className="mt-1 text-sm text-slate-500">{formatTime(order.promisedTime)} · {titleCase(order.status)} · {titleCase(order.source)} · {getOrderPaymentLabel(order)}</p>
                     <p className="mt-1 text-sm text-slate-500">{order.items.map((item) => `${item.quantity}x ${menuItems.find((entry) => entry.id === item.menuItemId)?.name ?? item.menuItemId}`).join(', ')}</p>
                     {order.notes ? <p className="mt-2 text-sm text-slate-500">{order.notes}</p> : null}
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Badge variant={isEditableOrder(order) || order.paymentMethod === 'preorder' ? 'green' : 'slate'}>
-                        {isEditableOrder(order) || order.paymentMethod === 'preorder' ? 'Editable now' : 'Locked'}
+                      <Badge variant={isEditableOrder(order) || isDeferredPreorder(order) ? 'green' : 'slate'}>
+                        {isEditableOrder(order) || isDeferredPreorder(order) ? 'Editable now' : 'Locked'}
                       </Badge>
+                      {isDeferredPreorder(order) ? <Badge variant="amber">Held from ops until paid</Badge> : null}
+                      {order.paymentStatus !== 'paid' && !isDeferredPreorder(order) ? <Badge variant="amber">Payment pending</Badge> : null}
                       {!isEditableOrder(order) ? <Badge variant="amber">Use a new add-on order after prep starts</Badge> : null}
                     </div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Link to={`/ops/${service.id}?customerName=${encodeURIComponent(order.customerName ?? '')}&mobile=${encodeURIComponent(order.customerMobile ?? '')}&email=${encodeURIComponent(order.customerEmail ?? '')}&source=manual&payment=preorder&notes=${encodeURIComponent(`Add-on for ${order.reference}`)}`}>
+                    <Link to={`/ops/${service.id}?customerName=${encodeURIComponent(order.customerName ?? '')}&mobile=${encodeURIComponent(order.customerMobile ?? '')}&email=${encodeURIComponent(order.customerEmail ?? '')}&source=manual&notes=${encodeURIComponent(`Add-on for ${order.reference}`)}`}>
                       <Button size="sm" variant="outline">{isEditableOrder(order) ? 'Continue in order entry' : 'New add-on order'}</Button>
                     </Link>
                     {order.status !== 'prepping' ? <Button size="sm" variant="secondary" onClick={() => updateOrderStatus(order.id, 'prepping')}>Prep</Button> : null}
@@ -306,7 +402,15 @@ export function ServiceEditPanel() {
               <select className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3" value={pagerOrderId} onChange={(event) => setPagerOrderId(event.target.value)}>{orders.map((order) => <option key={order.id} value={order.id}>{order.reference} - {order.customerId}</option>)}</select>
               <div className="mt-3 flex gap-2">
                 <Input value={pagerValue} placeholder="Pager number" onChange={(event) => setPagerValue(event.target.value)} />
-                <Button onClick={() => assignPager(pagerOrderId, pagerValue ? Number(pagerValue) : null, 'manager')}>Assign pager</Button>
+                <Button onClick={() => {
+                  void assignPager(pagerOrderId, pagerValue ? Number(pagerValue) : null, 'manager').then((result) => {
+                    if (!result.ok) {
+                      setSaveError(result.error ?? 'Pager save failed.')
+                    } else {
+                      setSaveError(null)
+                    }
+                  })
+                }}>Assign pager</Button>
               </div>
             </div>
           </div>

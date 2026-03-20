@@ -75,7 +75,8 @@ type CreateOrderInput = {
   source: OrderSource
   promisedTime: string
   items: OrderItem[]
-  paymentMethod: PaymentMethod
+  paymentMethod: PaymentMethod | null
+  deferPayment?: boolean
   notes?: string
   pagerNumber?: number | null
   appliedOrderDiscount?: AppliedDiscountSummary | null
@@ -98,6 +99,10 @@ type StoreState = ServiceSnapshot & {
   pauseService: (minutes: number, actor: string, reason: string) => void
   updatePaymentStatus: (paymentId: string, status: PaymentStatus) => void
   updatePaymentCheckout: (paymentId: string, updates: { providerReference?: string; checkoutUrl?: string; status?: PaymentStatus }) => void
+  collectOrderPayment: (
+    orderId: string,
+    input: { paymentMethod: PaymentMethod; actor: string },
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
   retryLoyverseSync: (queueId: string) => void
   getAvailableTimes: (items: OrderItem[]) => ReturnType<typeof getAvailableSlots>
   resetDemo: () => void
@@ -124,7 +129,11 @@ type StoreState = ServiceSnapshot & {
   upsertDiscountCode: (discountCode: DiscountCode, actor: string) => void
   upsertModifier: (modifier: Modifier, actor: string) => Promise<void>
   deleteModifier: (modifierId: string, actor: string) => Promise<void>
-  assignPager: (orderId: string, pagerNumber: number | null, actor: string) => { ok: boolean; error?: string }
+  assignPager: (
+    orderId: string,
+    pagerNumber: number | null,
+    actor: string,
+  ) => Promise<{ ok: boolean; error?: string }>
   getActivePagerNumbers: () => number[]
   hydrateRemote: () => Promise<void>
   startRealtime: () => (() => void) | null
@@ -315,6 +324,54 @@ function getRecallTargetStatus(order: Order, history: ServiceSnapshot['history']
   return 'taken'
 }
 
+function getPaymentProvider(method: PaymentMethod): PaymentRecord['provider'] {
+  return method === 'sumup_online' ? 'sumup' : 'manual'
+}
+
+function getPaymentProviderReference(order: Pick<Order, 'reference'>, method: PaymentMethod) {
+  if (method === 'sumup_online') {
+    return `SUMUP-${order.reference}`
+  }
+
+  if (method === 'cash') {
+    return `CASH-${order.reference}`
+  }
+
+  return `MANUAL-${order.reference}`
+}
+
+function rebuildPaymentsFromOrders(orders: Order[], existingPayments: PaymentRecord[] = []) {
+  const existingByOrderId = new Map(existingPayments.map((payment) => [payment.orderId, payment]))
+
+  return orders
+    .flatMap<PaymentRecord>((order) => {
+      const existing = existingByOrderId.get(order.id)
+      const method = order.paymentMethod ?? existing?.method ?? null
+
+      if (!method) {
+        return []
+      }
+
+      return [
+        {
+          id: existing?.id ?? `pay_${order.id}`,
+          orderId: order.id,
+          provider: getPaymentProvider(method),
+          method,
+          status: order.paymentStatus,
+          amount: order.totalAmount,
+          providerReference: existing?.providerReference ?? getPaymentProviderReference(order, method),
+          checkoutUrl: existing?.checkoutUrl,
+          createdAt: existing?.createdAt ?? order.createdAt,
+          updatedAt: existing?.updatedAt ?? order.createdAt,
+        },
+      ]
+    })
+    .sort(
+      (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    )
+}
+
 function createDemoState(): ServiceSnapshot {
   const baseSnapshot = normalizeSnapshot(seedSnapshot)
   const serviceStart = combineDateAndTime(baseSnapshot.service.date, baseSnapshot.service.startTime)
@@ -414,7 +471,7 @@ function createDemoState(): ServiceSnapshot {
       pizzaCount: 1,
       totalAmount: 13.5,
       paymentStatus: 'paid',
-      paymentMethod: 'terminal',
+      paymentMethod: 'manual',
       receiptEmailStatus: 'sent',
       receiptSentAt: addMinutes(serviceStart, -16),
       receiptLastError: null,
@@ -538,6 +595,7 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
     pricing_summary: order.pricingSummary ?? null,
     payment_status: order.paymentStatus,
     payment_method: order.paymentMethod,
+    pager_number: order.pagerNumber ?? null,
     receipt_email_status: order.receiptEmailStatus,
     receipt_sent_at: order.receiptSentAt,
     receipt_last_error: order.receiptLastError,
@@ -784,6 +842,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             ? await loadServiceInventoryFromSupabase(activeService.id, result.patch.ingredients)
             : result.patch.inventoryDefaults.map((entry) => ({ ...entry }))
           const orders = activeService?.id ? await loadOrdersForService(activeService.id) : []
+          const payments = rebuildPaymentsFromOrders(orders, get().payments)
 
           commit(
             () => ({
@@ -794,6 +853,7 @@ export const usePizzaOpsStore = create<StoreState>()(
               serviceLocations: Array.from(new Set(locations.map((entry) => entry.name))),
               inventory,
               orders,
+              payments,
               masterDataLoadError: result.error,
               masterDataLoadWarnings: result.warnings,
             }),
@@ -810,7 +870,11 @@ export const usePizzaOpsStore = create<StoreState>()(
       const reloadOrdersForService = async (serviceId: string) => {
         try {
           const orders = await loadOrdersForService(serviceId)
-          set({ orders, masterDataLoadError: null })
+          set((current) => ({
+            orders,
+            payments: rebuildPaymentsFromOrders(orders, current.payments),
+            masterDataLoadError: null,
+          }))
           return orders
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Order load failed.'
@@ -829,11 +893,13 @@ export const usePizzaOpsStore = create<StoreState>()(
           ])
           const nextService =
             services.find((entry) => entry.id === serviceId) ?? state.service
+          const payments = rebuildPaymentsFromOrders(orders, state.payments)
 
           set({
             services,
             service: nextService,
             orders,
+            payments,
             inventory,
             lastRemoteSyncAt: toIsoNow(),
             masterDataLoadError: null,
@@ -1013,6 +1079,13 @@ export const usePizzaOpsStore = create<StoreState>()(
         },
         createOrder: async (input) => {
           const state = get()
+          const isDeferredPreorder = input.deferPayment === true
+          const durablePaymentMethod = input.paymentMethod
+
+          if (!isDeferredPreorder && !durablePaymentMethod) {
+            return { ok: false as const, error: 'Payment method is required.' }
+          }
+
           const capacityUnits = input.items.reduce((count, item) => {
             const menuItem = state.menuItems.find((entry) => entry.id === item.menuItemId)
             return menuItem ? count + item.quantity : count
@@ -1094,11 +1167,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           const totalAmount = pricingSummary.finalTotalAmount
 
           const paymentStatus: PaymentStatus =
-            input.paymentMethod === 'cash' ||
-            input.paymentMethod === 'terminal' ||
-            input.paymentMethod === 'tap_to_pay'
-              ? 'paid'
-              : 'pending'
+            isDeferredPreorder || durablePaymentMethod === 'sumup_online' ? 'pending' : 'paid'
           const orderNumber = 100 + state.orders.length + 1
 
           const order: Order = {
@@ -1124,7 +1193,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             appliedDiscountSummary: appliedOrderDiscount,
             pricingSummary,
             paymentStatus,
-            paymentMethod: input.paymentMethod,
+            paymentMethod: durablePaymentMethod,
             receiptEmailStatus: customer.email
               ? paymentStatus === 'paid'
                 ? 'pending'
@@ -1145,24 +1214,25 @@ export const usePizzaOpsStore = create<StoreState>()(
             items: orderItems,
           }
 
-          const payment: PaymentRecord = {
-            id: paymentId,
-            orderId,
-            provider: input.paymentMethod === 'sumup_online' ? 'sumup' : 'manual',
-            method: input.paymentMethod,
-            status: paymentStatus,
-            amount: totalAmount,
-            providerReference:
-              input.paymentMethod === 'sumup_online'
-                ? paymentId
-                : input.paymentMethod === 'preorder'
-                  ? `PREORDER-${order.reference}`
-                  : `LOCAL-${order.reference}`,
-            checkoutUrl:
-              input.paymentMethod === 'sumup_online' ? `/payments/${paymentId}` : undefined,
-            createdAt: now,
-            updatedAt: now,
-          }
+          const payment =
+            durablePaymentMethod
+              ? ({
+                  id: paymentId,
+                  orderId,
+                  provider: getPaymentProvider(durablePaymentMethod),
+                  method: durablePaymentMethod,
+                  status: paymentStatus,
+                  amount: totalAmount,
+                  providerReference:
+                    durablePaymentMethod === 'sumup_online'
+                      ? paymentId
+                      : getPaymentProviderReference(order, durablePaymentMethod),
+                  checkoutUrl:
+                    durablePaymentMethod === 'sumup_online' ? `/payments/${paymentId}` : undefined,
+                  createdAt: now,
+                  updatedAt: now,
+                } satisfies PaymentRecord)
+              : null
 
           const queueItem: LoyverseSyncQueueItem = {
             id: randomId('sync'),
@@ -1220,7 +1290,9 @@ export const usePizzaOpsStore = create<StoreState>()(
                 )
               : [...current.customers, customer],
             orders: persistedOrders,
-            payments: [payment, ...current.payments],
+            payments: payment
+              ? rebuildPaymentsFromOrders(persistedOrders, [payment, ...current.payments])
+              : rebuildPaymentsFromOrders(persistedOrders, current.payments),
             discountCodes: current.discountCodes.map((entry) =>
               entry.id === appliedOrderDiscount?.discountCodeId
                 ? { ...entry, usedCount: entry.usedCount + 1, updatedAt: now }
@@ -1255,7 +1327,7 @@ export const usePizzaOpsStore = create<StoreState>()(
               createActivity(
                 'order_created',
                 'order_taker',
-                `${order.reference} booked for ${formatTime(order.promisedTime)}.`,
+                `${order.reference} booked for ${formatTime(order.promisedTime)}${isDeferredPreorder ? ' as preorder.' : '.'}`,
                 order.id,
               ),
               ...current.activityLog,
@@ -1269,7 +1341,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           return {
             ok: true as const,
             orderId,
-            paymentId: input.paymentMethod === 'sumup_online' ? paymentId : undefined,
+            paymentId: durablePaymentMethod === 'sumup_online' ? paymentId : undefined,
           }
         },
         updateOrderStatus: (orderId, nextStatus) => {
@@ -1484,6 +1556,57 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+        },
+        collectOrderPayment: async (orderId, input) => {
+          const state = get()
+          const order = state.orders.find((entry) => entry.id === orderId)
+
+          if (!order) {
+            return { ok: false as const, error: 'Order not found.' }
+          }
+
+          const nextOrder: Order = {
+            ...order,
+            paymentMethod: input.paymentMethod,
+            paymentStatus: input.paymentMethod === 'sumup_online' ? 'pending' : 'paid',
+            receiptEmailStatus:
+              input.paymentMethod === 'sumup_online'
+                ? order.receiptEmailStatus
+                : order.customerEmail
+                  ? order.receiptEmailStatus === 'sent'
+                    ? 'sent'
+                    : 'pending'
+                  : order.receiptEmailStatus,
+          }
+
+          try {
+            await mirrorOrderToSupabase(nextOrder, state.service.id)
+            const persistedOrders = await reloadOrdersForService(state.service.id)
+            commit((current) => ({
+              orders: persistedOrders,
+              payments: rebuildPaymentsFromOrders(persistedOrders, current.payments),
+              activityLog: [
+                createActivity(
+                  'payment_updated',
+                  input.actor,
+                  `${order.reference} payment captured as ${input.paymentMethod.replaceAll('_', ' ')}.`,
+                  order.id,
+                ),
+                ...current.activityLog,
+              ],
+            }))
+          } catch (error) {
+            return {
+              ok: false as const,
+              error: error instanceof Error ? error.message : 'Payment update failed.',
+            }
+          }
+
+          if (nextOrder.paymentStatus === 'paid') {
+            void sendOrderReceipt(order.id)
+          }
+
+          return { ok: true as const }
         },
         updatePaymentStatus: (paymentId, status) => {
           const state = get()
@@ -2029,38 +2152,48 @@ export const usePizzaOpsStore = create<StoreState>()(
           }))
         },
         assignPager: (orderId, pagerNumber, actor) => {
-          const current = get()
-          const order = current.orders.find((entry) => entry.id === orderId)
-          if (!order) {
-            return { ok: false, error: 'Order not found.' }
+          const persistPager = async () => {
+            const current = get()
+            const order = current.orders.find((entry) => entry.id === orderId)
+            if (!order) {
+              return { ok: false, error: 'Order not found.' }
+            }
+
+            if (
+              pagerNumber &&
+              current.orders.some(
+                (entry) =>
+                  entry.id !== orderId &&
+                  entry.status !== 'completed' &&
+                  entry.pagerNumber === pagerNumber,
+              )
+            ) {
+              return { ok: false, error: `Pager ${pagerNumber} is already in use.` }
+            }
+
+            const nextOrder = { ...order, pagerNumber }
+
+            try {
+              await mirrorOrderToSupabase(nextOrder, current.service.id)
+              const persistedOrders = await reloadOrdersForService(current.service.id)
+              commit((state) => ({
+                orders: persistedOrders,
+                payments: rebuildPaymentsFromOrders(persistedOrders, state.payments),
+                activityLog: [
+                  createActivity('pager_assigned', actor, `${order.reference} pager ${pagerNumber ?? 'cleared'}.`, orderId),
+                  ...state.activityLog,
+                ],
+              }))
+              return { ok: true }
+            } catch (error) {
+              return {
+                ok: false,
+                error: error instanceof Error ? error.message : 'Pager save failed.',
+              }
+            }
           }
 
-          if (
-            pagerNumber &&
-            current.orders.some(
-              (entry) =>
-                entry.id !== orderId &&
-                entry.status !== 'completed' &&
-                entry.pagerNumber === pagerNumber,
-            )
-          ) {
-            return { ok: false, error: `Pager ${pagerNumber} is already in use.` }
-          }
-
-          commit((state) => ({
-            orders: state.orders.map((entry) =>
-              entry.id === orderId ? { ...entry, pagerNumber } : entry,
-            ),
-            activityLog: [
-              createActivity('pager_assigned', actor, `${order.reference} pager ${pagerNumber ?? 'cleared'}.`, orderId),
-              ...state.activityLog,
-            ],
-          }))
-          const syncedOrder = get().orders.find((entry) => entry.id === orderId)
-          if (syncedOrder) {
-            void mirrorOrderToSupabase(syncedOrder, current.service.id)
-          }
-          return { ok: true }
+          return persistPager()
         },
         getActivePagerNumbers: () =>
           get()

@@ -81,6 +81,7 @@ type OrderRow = {
   receipt_last_error?: string | null
   loyverse_sync_status?: Order['loyaltySyncStatus'] | null
   notes?: string | null
+  pager_number?: number | null
   taken_at: string
   prepping_at?: string | null
   in_oven_at?: string | null
@@ -136,11 +137,11 @@ function deriveLastCollectionTime(endTimeIso: string, slotMinutes: number) {
 }
 
 function normalizePaymentMethod(value?: string | null): Order['paymentMethod'] {
-  if (value === 'terminal') {
-    return 'tap_to_pay'
+  if (value === 'terminal' || value === 'tap_to_pay') {
+    return 'manual'
   }
 
-  return (value as Order['paymentMethod']) ?? 'manual'
+  return (value as Order['paymentMethod']) ?? null
 }
 
 export function mapLocationRow(row: LocationRow): Location {
@@ -461,7 +462,7 @@ export async function loadOrdersForService(serviceId: string) {
 
   const { data, error } = await supabase!
     .from('orders')
-    .select('id, service_id, order_number, source, customer_name, customer_mobile, customer_email, auth_user_id, status, promised_collection_time, subtotal_pence, discount_pence, total_pence, applied_discount_code_id, applied_discount_summary, pricing_summary, payment_status, payment_method, receipt_email_status, receipt_sent_at, receipt_last_error, loyverse_sync_status, notes, taken_at, prepping_at, in_oven_at, ready_at, completed_at, created_at, order_items(id, menu_item_id, item_name, quantity, original_unit_price_pence, item_discount_pence, final_unit_price_pence, notes, order_item_modifiers(modifier_name, price_delta_pence))')
+    .select('id, service_id, order_number, source, customer_name, customer_mobile, customer_email, auth_user_id, status, promised_collection_time, subtotal_pence, discount_pence, total_pence, applied_discount_code_id, applied_discount_summary, pricing_summary, payment_status, payment_method, receipt_email_status, receipt_sent_at, receipt_last_error, loyverse_sync_status, notes, pager_number, taken_at, prepping_at, in_oven_at, ready_at, completed_at, created_at, order_items(id, menu_item_id, item_name, quantity, original_unit_price_pence, item_discount_pence, final_unit_price_pence, notes, order_item_modifiers(modifier_name, price_delta_pence))')
     .eq('service_id', serviceId)
     .order('created_at', { ascending: false })
 
@@ -515,7 +516,7 @@ export async function loadOrdersForService(serviceId: string) {
       receiptLastError: row.receipt_last_error ?? null,
       loyaltySyncStatus: row.loyverse_sync_status ?? 'pending',
       createdAt: row.created_at,
-      pagerNumber: null,
+      pagerNumber: row.pager_number ?? null,
       timestamps: {
         taken_at: row.taken_at,
         prepping_at: row.prepping_at ?? null,

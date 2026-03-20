@@ -9,10 +9,7 @@ export type OrderSource =
 export type PaymentMethod =
   | 'sumup_online'
   | 'cash'
-  | 'terminal'
   | 'manual'
-  | 'tap_to_pay'
-  | 'preorder'
 export type PaymentStatus = 'pending' | 'authorized' | 'paid' | 'failed' | 'refunded'
 export type SyncStatus = 'pending' | 'processing' | 'synced' | 'failed'
 export type DiscountType = 'percentage' | 'fixed_amount'
@@ -223,7 +220,7 @@ export type Order = {
   appliedDiscountSummary?: AppliedDiscountSummary | null
   pricingSummary?: PricingSummary
   paymentStatus: PaymentStatus
-  paymentMethod: PaymentMethod
+  paymentMethod: PaymentMethod | null
   receiptEmailStatus?: 'not_requested' | 'pending' | 'sending' | 'sent' | 'failed'
   receiptSentAt?: string | null
   receiptLastError?: string | null
