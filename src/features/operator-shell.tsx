@@ -130,15 +130,7 @@ export function AppShell({ children }: PropsWithChildren) {
         <Card className="overflow-hidden border-white/70 bg-white/80">
           <header className="border-b border-slate-200 bg-white/90 px-4 py-3 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <Button
-                  variant="outline"
-                  className="h-11 w-11 rounded-xl p-0"
-                  onClick={() => setDrawerOpen(true)}
-                  aria-label="Open navigation menu"
-                >
-                  <Menu className="h-5 w-5" />
-                </Button>
+              <div className="min-w-0">
                 <div className="min-w-0">
                   <p className="truncate font-display text-xl font-bold">{routeTitle}</p>
                   <p className="truncate text-sm text-slate-500">{service.name}</p>
@@ -164,6 +156,14 @@ export function AppShell({ children }: PropsWithChildren) {
                 ) : (
                   <MetricChip icon={LoaderCircle} label="Safe mode" tone="warn" />
                 )}
+                <Button
+                  variant="outline"
+                  className="h-11 w-11 rounded-xl p-0"
+                  onClick={() => setDrawerOpen(true)}
+                  aria-label="Open navigation menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
               </div>
             </div>
           </header>
