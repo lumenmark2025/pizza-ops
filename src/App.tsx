@@ -52,6 +52,11 @@ function OperationalServicePicker({
     (entry) => entry.date >= minServiceDate && entry.date <= maxServiceDate,
   )
   const liveServices = visibleServices.filter((entry) => entry.status === 'live' || entry.status === 'paused')
+  const activeFallbackServices = services.filter(
+    (entry) => entry.status === 'live' || entry.status === 'paused',
+  )
+  const listedServices =
+    liveServices.length ? liveServices : visibleServices.length ? visibleServices : activeFallbackServices
 
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
@@ -62,7 +67,7 @@ function OperationalServicePicker({
           Select the service explicitly. Operational screens no longer infer service scope from browser-local state.
         </p>
         <div className="mt-5 grid gap-3">
-          {(liveServices.length ? liveServices : visibleServices).map((service) => (
+          {listedServices.map((service) => (
             <Link
               key={service.id}
               to={buildHref(service.id)}
@@ -82,6 +87,11 @@ function OperationalServicePicker({
               </div>
             </Link>
           ))}
+          {!listedServices.length ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              No services matched the current picker filter. This screen now keeps a visible empty state instead of going blank after hydration.
+            </div>
+          ) : null}
         </div>
       </Card>
     </div>

@@ -617,8 +617,9 @@ export function OrderEntryPage() {
               <span>{currency(pricingSummary.finalTotalAmount)}</span>
             </div>
           </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {availableSlots.slice(0, 8).map((slot) => (
+          <div className="mt-3 max-h-80 overflow-y-auto pr-1">
+            <div className="grid gap-2 sm:grid-cols-2">
+            {availableSlots.map((slot) => (
               <button
                 key={slot.promisedTime}
                 className={cn('rounded-xl border px-3 py-3 text-left transition', selectedTime === slot.promisedTime ? 'border-orange-300 bg-orange-500/20' : 'border-white/15 bg-white/5 hover:bg-white/10')}
@@ -628,6 +629,7 @@ export function OrderEntryPage() {
                 <p className="text-xs text-slate-300">using {slot.allocations.length} slot{slot.allocations.length > 1 ? 's' : ''}</p>
               </button>
             ))}
+            </div>
           </div>
           {!availableSlots.length ? (
             <p className="mt-3 text-sm text-slate-300">

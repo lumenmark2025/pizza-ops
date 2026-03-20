@@ -6,8 +6,20 @@ export function isDeferredPreorder(order: Pick<Order, 'paymentMethod' | 'payment
   return order.paymentMethod == null && order.paymentStatus === 'pending'
 }
 
-export function isReleasedToOps(order: Pick<Order, 'paymentMethod' | 'paymentStatus'>) {
-  return !isDeferredPreorder(order)
+export function isAwaitingOnlineCheckout(
+  order: Pick<Order, 'source' | 'paymentMethod' | 'paymentStatus'>,
+) {
+  return (
+    order.source === 'web' &&
+    order.paymentMethod === 'sumup_online' &&
+    order.paymentStatus === 'pending'
+  )
+}
+
+export function isReleasedToOps(
+  order: Pick<Order, 'source' | 'paymentMethod' | 'paymentStatus'>,
+) {
+  return !isAwaitingOnlineCheckout(order)
 }
 
 export function getOrderPaymentLabel(order: Pick<Order, 'paymentMethod' | 'paymentStatus'>) {

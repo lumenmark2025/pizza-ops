@@ -48,7 +48,7 @@ export function ModifiersAdminPage() {
         <div className="mt-6 grid gap-4">
           <label className="grid gap-2 text-sm">
             <span className="font-semibold text-slate-600">Modifier name</span>
-            <Input value={modifierDraft.name} onChange={(event) => setModifierDraft((current) => ({ ...current, id: current.id || `mod_${event.target.value.toLowerCase().replace(/\s+/g, '_')}`, name: event.target.value }))} />
+            <Input value={modifierDraft.name} onChange={(event) => setModifierDraft((current) => ({ ...current, name: event.target.value }))} />
           </label>
           <label className="grid gap-2 text-sm">
             <span className="font-semibold text-slate-600">Price change</span>

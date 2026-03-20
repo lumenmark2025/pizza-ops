@@ -69,6 +69,12 @@ export type MasterDataLoadResult = {
   warnings: string[]
 }
 
+function isUuidValue(value?: string | null) {
+  return typeof value === 'string'
+    ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    : false
+}
+
 function isMissingIngredientThresholdColumn(error: { code?: string; message?: string } | null | undefined) {
   return (
     error?.code === 'PGRST204' ||
@@ -487,7 +493,7 @@ export async function persistModifierToSupabase(modifier: Modifier): Promise<Mod
   }
 
   const payload = {
-    id: modifier.id,
+    ...(isUuidValue(modifier.id) ? { id: modifier.id } : {}),
     name: modifier.name.trim(),
     price_delta: Number(modifier.priceDelta ?? 0),
     stock_ingredient_id: modifier.stockIngredientId ?? null,
@@ -505,7 +511,7 @@ export async function persistModifierToSupabase(modifier: Modifier): Promise<Mod
   const persistedModifier =
     primary.error && isMissingModifierColumn(primary.error)
       ? await supabase.from('modifiers').upsert({
-          id: modifier.id,
+          ...(isUuidValue(modifier.id) ? { id: modifier.id } : {}),
           name: modifier.name.trim(),
           price_delta: Number(modifier.priceDelta ?? 0),
         }).select('id, name, price_delta').single()
@@ -515,10 +521,12 @@ export async function persistModifierToSupabase(modifier: Modifier): Promise<Mod
     throw new Error(formatPersistError('modifiers upsert', persistedModifier.error))
   }
 
+  const persistedModifierId = (persistedModifier.data as ModifierRow).id
+
   const { error: deleteLinksError } = await supabase
     .from('menu_item_modifiers')
     .delete()
-    .eq('modifier_id', modifier.id)
+    .eq('modifier_id', persistedModifierId)
 
   if (deleteLinksError) {
     throw new Error(formatPersistError('menu_item_modifiers delete', deleteLinksError))
@@ -533,7 +541,7 @@ export async function persistModifierToSupabase(modifier: Modifier): Promise<Mod
     const { error: insertLinksError } = await supabase.from('menu_item_modifiers').insert(
       menuItemIds.map((menuItemId) => ({
         menu_item_id: menuItemId,
-        modifier_id: modifier.id,
+        modifier_id: persistedModifierId,
       })),
     )
 

@@ -363,12 +363,28 @@ function useEligibleServices() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const maxDate = new Date(today)
-    maxDate.setDate(today.getDate() + 5)
+    maxDate.setDate(today.getDate() + 7)
 
-    return services.filter((entry) => {
+    const visible = services.filter((entry) => {
       const serviceDate = new Date(`${entry.date}T00:00:00`)
-      return serviceDate >= today && serviceDate <= maxDate && entry.status !== 'cancelled'
+      return (
+        serviceDate >= today &&
+        serviceDate <= maxDate &&
+        entry.status !== 'cancelled' &&
+        entry.acceptPublicOrders
+      )
     })
+
+    if (visible.length) {
+      return visible
+    }
+
+    return services.filter(
+      (entry) =>
+        entry.acceptPublicOrders &&
+        entry.status !== 'cancelled' &&
+        (entry.status === 'live' || entry.status === 'paused'),
+    )
   }, [services])
 }
 
@@ -689,6 +705,14 @@ export function CustomerOrderPage() {
   return (
     <CustomerShell eyebrow="Public Ordering" title="Choose where you’re collecting from">
       <div className="grid gap-4">
+        {!eligibleServices.length ? (
+          <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] sm:p-6">
+            <h2 className="font-display text-2xl font-bold">No services available right now</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              There are no public-order services available in the current window. This page now stays visible instead of appearing blank when no service matches the current filter.
+            </p>
+          </Card>
+        ) : null}
         {eligibleServices.map((service) => {
           const location = locations.find((entry) => entry.id === service.locationId)
           return (
@@ -1339,8 +1363,9 @@ export function CustomerCheckoutPage() {
           ) : null}
           <div className="mt-5">
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Collection time</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {availableSlots.slice(0, 8).map((slot) => (
+            <div className="mt-3 max-h-80 overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-2">
+              {availableSlots.map((slot) => (
                 <button
                   key={slot.promisedTime}
                   className={cn(
@@ -1355,6 +1380,7 @@ export function CustomerCheckoutPage() {
                   <p className="text-xs text-slate-500">Collection slot</p>
                 </button>
               ))}
+              </div>
             </div>
           </div>
           <div className="mt-6 grid gap-2 sm:grid-cols-2">

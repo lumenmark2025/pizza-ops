@@ -103,6 +103,11 @@ type StoreState = ServiceSnapshot & {
     orderId: string,
     input: { paymentMethod: PaymentMethod; actor: string },
   ) => Promise<{ ok: true } | { ok: false; error: string }>
+  updateOrderContact: (
+    orderId: string,
+    input: { customerEmail?: string; actor: string },
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
+  sendReceiptForOrder: (orderId: string) => Promise<{ ok: true } | { ok: false; error: string }>
   retryLoyverseSync: (queueId: string) => void
   getAvailableTimes: (items: OrderItem[]) => ReturnType<typeof getAvailableSlots>
   resetDemo: () => void
@@ -704,14 +709,14 @@ export const usePizzaOpsStore = create<StoreState>()(
         const state = get()
         const order = state.orders.find((entry) => entry.id === orderId)
         if (!order?.customerEmail) {
-          return
+          return { ok: false as const, error: 'Customer email is required before sending a receipt.' }
         }
 
         if (
           order.receiptEmailStatus === 'sending' ||
           order.receiptEmailStatus === 'sent'
         ) {
-          return
+          return { ok: true as const }
         }
 
         const service = state.services.find((entry) => entry.id === state.service.id) ?? state.service
@@ -802,6 +807,11 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...current.activityLog,
             ],
           }))
+          const syncedOrder = get().orders.find((entry) => entry.id === orderId)
+          if (syncedOrder) {
+            await mirrorOrderToSupabase(syncedOrder, state.service.id)
+          }
+          return { ok: true as const }
         } catch (error) {
           commit((current) => ({
             orders: current.orders.map((entry) =>
@@ -815,6 +825,18 @@ export const usePizzaOpsStore = create<StoreState>()(
                 : entry,
             ),
           }))
+          const syncedOrder = get().orders.find((entry) => entry.id === orderId)
+          if (syncedOrder) {
+            try {
+              await mirrorOrderToSupabase(syncedOrder, state.service.id)
+            } catch {
+              // Keep the original receipt failure surfaced.
+            }
+          }
+          return {
+            ok: false as const,
+            error: error instanceof Error ? error.message : 'Receipt sending failed.',
+          }
         }
       }
 
@@ -1608,6 +1630,44 @@ export const usePizzaOpsStore = create<StoreState>()(
 
           return { ok: true as const }
         },
+        updateOrderContact: async (orderId, input) => {
+          const state = get()
+          const order = state.orders.find((entry) => entry.id === orderId)
+
+          if (!order) {
+            return { ok: false as const, error: 'Order not found.' }
+          }
+
+          const nextOrder: Order = {
+            ...order,
+            customerEmail: input.customerEmail?.trim() || undefined,
+          }
+
+          try {
+            await mirrorOrderToSupabase(nextOrder, state.service.id)
+            const persistedOrders = await reloadOrdersForService(state.service.id)
+            commit((current) => ({
+              orders: persistedOrders,
+              payments: rebuildPaymentsFromOrders(persistedOrders, current.payments),
+              activityLog: [
+                createActivity(
+                  'payment_updated',
+                  input.actor,
+                  `${order.reference} contact details updated.`,
+                  order.id,
+                ),
+                ...current.activityLog,
+              ],
+            }))
+            return { ok: true as const }
+          } catch (error) {
+            return {
+              ok: false as const,
+              error: error instanceof Error ? error.message : 'Order contact update failed.',
+            }
+          }
+        },
+        sendReceiptForOrder: async (orderId) => sendOrderReceipt(orderId),
         updatePaymentStatus: (paymentId, status) => {
           const state = get()
           const payment = state.payments.find((entry) => entry.id === paymentId)

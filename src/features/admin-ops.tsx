@@ -352,7 +352,7 @@ export function ServiceEditPanel() {
                       <Badge variant={isEditableOrder(order) || isDeferredPreorder(order) ? 'green' : 'slate'}>
                         {isEditableOrder(order) || isDeferredPreorder(order) ? 'Editable now' : 'Locked'}
                       </Badge>
-                      {isDeferredPreorder(order) ? <Badge variant="amber">Held from ops until paid</Badge> : null}
+                      {isDeferredPreorder(order) ? <Badge variant="amber">Preorder recall available</Badge> : null}
                       {order.paymentStatus !== 'paid' && !isDeferredPreorder(order) ? <Badge variant="amber">Payment pending</Badge> : null}
                       {!isEditableOrder(order) ? <Badge variant="amber">Use a new add-on order after prep starts</Badge> : null}
                     </div>

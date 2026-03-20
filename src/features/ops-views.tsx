@@ -12,6 +12,7 @@ import { Navigate, useParams } from 'react-router-dom'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { Input } from '../components/ui/input'
 import { isReleasedToOps } from '../lib/order-flow'
 import { formatTime } from '../lib/time'
 import { cn, currency, titleCase } from '../lib/utils'
@@ -725,8 +726,30 @@ export function ExpeditorPage() {
   const customers = usePizzaOpsStore((state) => state.customers)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const updateOrderStatus = usePizzaOpsStore((state) => state.updateOrderStatus)
+  const updateOrderContact = usePizzaOpsStore((state) => state.updateOrderContact)
+  const sendReceiptForOrder = usePizzaOpsStore((state) => state.sendReceiptForOrder)
   const readyOrders = orders.filter((order) => isReleasedToOps(order) && order.status === 'ready')
   const completedOrders = orders.filter((order) => isReleasedToOps(order) && order.status === 'completed').slice(0, 6)
+  const [selectedCompletedOrderId, setSelectedCompletedOrderId] = useState<string | null>(null)
+  const [receiptEmail, setReceiptEmail] = useState('')
+  const [completedActionMessage, setCompletedActionMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!completedOrders.length) {
+      setSelectedCompletedOrderId(null)
+      setReceiptEmail('')
+      return
+    }
+
+    const nextSelected =
+      completedOrders.find((order) => order.id === selectedCompletedOrderId) ?? completedOrders[0]
+
+    setSelectedCompletedOrderId(nextSelected.id)
+    setReceiptEmail(nextSelected.customerEmail ?? '')
+  }, [completedOrders, selectedCompletedOrderId])
+
+  const selectedCompletedOrder =
+    completedOrders.find((order) => order.id === selectedCompletedOrderId) ?? null
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -754,7 +777,21 @@ export function ExpeditorPage() {
         <div className="mt-4 space-y-3">
           {completedOrders.map((order) => {
             return (
-              <div key={order.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <button
+                key={order.id}
+                type="button"
+                className={cn(
+                  'w-full rounded-xl border p-4 text-left',
+                  selectedCompletedOrderId === order.id
+                    ? 'border-orange-300 bg-orange-50'
+                    : 'border-slate-200 bg-slate-50',
+                )}
+                onClick={() => {
+                  setSelectedCompletedOrderId(order.id)
+                  setReceiptEmail(order.customerEmail ?? '')
+                  setCompletedActionMessage(null)
+                }}
+              >
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-semibold">{getCustomerName(order, customers)}</p>
@@ -767,9 +804,102 @@ export function ExpeditorPage() {
                     {formatTime(order.timestamps.completed_at ?? order.createdAt)}
                   </Badge>
                 </div>
-              </div>
+              </button>
             )
           })}
+          {selectedCompletedOrder ? (
+            <Card className="border-slate-200 bg-white p-4 shadow-none">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Completed order detail
+                  </p>
+                  <h3 className="mt-1 font-display text-2xl font-bold">
+                    {selectedCompletedOrder.reference}
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {getCustomerName(selectedCompletedOrder, customers)} / {formatTime(selectedCompletedOrder.promisedTime)}
+                  </p>
+                </div>
+                <Badge variant="slate">
+                  {formatTime(selectedCompletedOrder.timestamps.completed_at ?? selectedCompletedOrder.createdAt)}
+                </Badge>
+              </div>
+              <div className="mt-4 space-y-2">
+                {selectedCompletedOrder.items.map((item) => (
+                  <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="font-semibold">
+                      {item.quantity} x {menuItems.find((entry) => entry.id === item.menuItemId)?.name ?? item.menuItemId}
+                    </p>
+                    {item.modifiers?.length ? (
+                      <p className="mt-1 text-xs text-slate-500">{item.modifiers.map((modifier) => modifier.name).join(', ')}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 grid gap-3">
+                <Input
+                  type="email"
+                  value={receiptEmail}
+                  placeholder="Receipt email"
+                  onChange={(event) => setReceiptEmail(event.target.value)}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setCompletedActionMessage(null)
+                      void updateOrderContact(selectedCompletedOrder.id, {
+                        customerEmail: receiptEmail,
+                        actor: 'expeditor',
+                      }).then((result) => {
+                        setCompletedActionMessage(result.ok ? 'Email saved to the order.' : result.error)
+                      })
+                    }}
+                  >
+                    Save email
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setCompletedActionMessage(null)
+                      void updateOrderContact(selectedCompletedOrder.id, {
+                        customerEmail: receiptEmail,
+                        actor: 'expeditor',
+                      }).then((result) => {
+                        if (!result.ok) {
+                          setCompletedActionMessage(result.error)
+                          return
+                        }
+
+                        void sendReceiptForOrder(selectedCompletedOrder.id).then((receiptResult) => {
+                          setCompletedActionMessage(
+                            receiptResult.ok ? 'Receipt sent.' : receiptResult.error,
+                          )
+                        })
+                      })
+                    }}
+                  >
+                    Send receipt
+                  </Button>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" disabled>
+                      Refund item
+                    </Button>
+                    <Button size="sm" variant="outline" disabled>
+                      Refund full order
+                    </Button>
+                  </div>
+                  Refund actions are not connected to a durable payment-provider refund flow yet. No item refund or full refund is written from Expeditor in this build.
+                </div>
+                {completedActionMessage ? (
+                  <p className="text-sm font-medium text-slate-600">{completedActionMessage}</p>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
         </div>
       </Card>
     </div>
