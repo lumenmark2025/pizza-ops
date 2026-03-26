@@ -41,8 +41,10 @@ type ServiceInventoryRow = {
 }
 
 type OrderItemModifierRow = {
+  order_item_id?: string
   modifier_name: string
   price_delta_pence?: number | null
+  quantity?: number | null
 }
 
 type OrderItemRow = {
@@ -53,6 +55,7 @@ type OrderItemRow = {
   original_unit_price_pence?: number | null
   item_discount_pence?: number | null
   final_unit_price_pence?: number | null
+  progress_count?: number | null
   notes?: string | null
   order_item_modifiers?: OrderItemModifierRow[] | null
 }
@@ -463,7 +466,7 @@ export async function loadOrdersForService(serviceId: string) {
 
   const { data, error } = await supabase!
     .from('orders')
-    .select('id, service_id, order_number, source, customer_name, customer_mobile, customer_email, auth_user_id, status, promised_collection_time, subtotal_pence, discount_pence, total_pence, applied_discount_code_id, applied_discount_summary, pricing_summary, payment_status, payment_method, payment_reference, receipt_email_status, receipt_sent_at, receipt_last_error, loyverse_sync_status, notes, pager_number, taken_at, prepping_at, in_oven_at, ready_at, completed_at, created_at, order_items(id, menu_item_id, item_name, quantity, original_unit_price_pence, item_discount_pence, final_unit_price_pence, notes, order_item_modifiers(modifier_name, price_delta_pence))')
+    .select('id, service_id, order_number, source, customer_name, customer_mobile, customer_email, auth_user_id, status, promised_collection_time, subtotal_pence, discount_pence, total_pence, applied_discount_code_id, applied_discount_summary, pricing_summary, payment_status, payment_method, payment_reference, receipt_email_status, receipt_sent_at, receipt_last_error, loyverse_sync_status, notes, pager_number, taken_at, prepping_at, in_oven_at, ready_at, completed_at, created_at, order_items(id, menu_item_id, item_name, quantity, original_unit_price_pence, item_discount_pence, final_unit_price_pence, progress_count, notes, order_item_modifiers(order_item_id, modifier_name, price_delta_pence, quantity))')
     .eq('service_id', serviceId)
     .order('created_at', { ascending: false })
 
@@ -477,7 +480,7 @@ export async function loadOrdersForService(serviceId: string) {
       menuItemId: item.menu_item_id,
       quantity: item.quantity,
       notes: item.notes ?? '',
-      progressCount: 0,
+      progressCount: item.progress_count ?? 0,
       originalUnitPrice: Number(item.original_unit_price_pence ?? 0) / 100 || undefined,
       itemDiscountAmount: Number(item.item_discount_pence ?? 0) / 100 || undefined,
       finalUnitPrice: Number(item.final_unit_price_pence ?? 0) / 100 || undefined,
@@ -485,7 +488,7 @@ export async function loadOrdersForService(serviceId: string) {
         modifierId: modifier.modifier_name,
         name: modifier.modifier_name,
         priceDelta: Number(modifier.price_delta_pence ?? 0) / 100,
-        quantity: 1,
+        quantity: modifier.quantity ?? 1,
       })),
     }))
 

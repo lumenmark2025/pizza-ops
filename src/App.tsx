@@ -109,25 +109,7 @@ function ServiceScopedRoute({ children }: { children: ReactNode }) {
       return
     }
 
-    const switched = usePizzaOpsStore.getState().service.id === serviceId || loadServiceForEditing(serviceId)
-    if (!switched) {
-      return
-    }
-
-    const { hydrateRemote, startRealtime } = usePizzaOpsStore.getState()
-    let stop: null | (() => void) = null
-
-    void hydrateRemote().then(() => {
-      if (SAFE_MODE) {
-        return
-      }
-
-      stop = startRealtime()
-    })
-
-    return () => {
-      stop?.()
-    }
+    void loadServiceForEditing(serviceId)
   }, [loadServiceForEditing, serviceId])
 
   if (!serviceId) {
@@ -155,6 +137,7 @@ function App() {
   const location = useLocation()
   const setOnlineStatus = usePizzaOpsStore((state) => state.setOnlineStatus)
   const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
+  const activeServiceId = usePizzaOpsStore((state) => state.service.id)
   const bootstrapStartedRef = useRef(false)
   const isStandaloneDisplayRoute = [/^\/ops\/[^/]+\/kds$/, /^\/ops\/[^/]+\/kds-2$/, /^\/ops\/[^/]+\/board$/].some((pattern) =>
     pattern.test(location.pathname),
@@ -183,6 +166,28 @@ function App() {
       console.info('[pizza-ops] hydration complete')
     })
   }, [])
+
+  useEffect(() => {
+    if (!activeServiceId) {
+      return
+    }
+
+    let cancelled = false
+    let stop: null | (() => void) = null
+
+    void usePizzaOpsStore.getState().hydrateRemote().then(() => {
+      if (cancelled || SAFE_MODE) {
+        return
+      }
+
+      stop = usePizzaOpsStore.getState().startRealtime()
+    })
+
+    return () => {
+      cancelled = true
+      stop?.()
+    }
+  }, [activeServiceId])
 
   const routes = (
     <Routes>

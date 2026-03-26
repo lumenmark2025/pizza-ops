@@ -89,7 +89,7 @@ export function subscribeToRemoteSnapshot(
 
 export function subscribeToServiceOpsTables(
   serviceId: string,
-  onChange: (table: 'orders' | 'service_inventory' | 'services') => void,
+  onChange: (table: 'orders' | 'order_items' | 'order_item_modifiers' | 'service_inventory' | 'services') => void,
   onStatus?: (status: string) => void,
 ) {
   if (!supabase) {
@@ -113,6 +113,30 @@ export function subscribeToServiceOpsTables(
       {
         event: '*',
         schema: 'public',
+        table: 'order_items',
+      },
+      (payload) => {
+        const next = payload.new as { order_id?: string } | null
+        const previous = payload.old as { order_id?: string } | null
+        if ((next?.order_id ?? previous?.order_id) != null) {
+          onChange('order_items')
+        }
+      },
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'order_item_modifiers',
+      },
+      () => onChange('order_item_modifiers'),
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
         table: 'service_inventory',
         filter: `service_id=eq.${serviceId}`,
       },
@@ -128,6 +152,45 @@ export function subscribeToServiceOpsTables(
       },
       () => onChange('services'),
     )
+    .subscribe((status) => {
+      onStatus?.(status)
+    })
+
+  return () => {
+    if (supabase) {
+      void supabase.removeChannel(channel)
+    }
+  }
+}
+
+export function subscribeToMasterDataTables(
+  onChange: (
+    table:
+      | 'services'
+      | 'locations'
+      | 'menu_items'
+      | 'menu_item_recipes'
+      | 'ingredients'
+      | 'modifiers'
+      | 'menu_item_modifiers'
+      | 'discount_codes',
+  ) => void,
+  onStatus?: (status: string) => void,
+) {
+  if (!supabase) {
+    return null
+  }
+
+  const channel: RealtimeChannel = supabase
+    .channel('master-data')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => onChange('services'))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, () => onChange('locations'))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, () => onChange('menu_items'))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_item_recipes' }, () => onChange('menu_item_recipes'))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, () => onChange('ingredients'))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'modifiers' }, () => onChange('modifiers'))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_item_modifiers' }, () => onChange('menu_item_modifiers'))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'discount_codes' }, () => onChange('discount_codes'))
     .subscribe((status) => {
       onStatus?.(status)
     })

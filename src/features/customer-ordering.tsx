@@ -795,6 +795,7 @@ export function CustomerLocationPage() {
 export function CustomerServicePage() {
   const { serviceId } = useParams()
   const navigate = useNavigate()
+  const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const orders = usePizzaOpsStore((state) => state.orders)
   const recipes = usePizzaOpsStore((state) => state.recipes)
@@ -841,6 +842,10 @@ export function CustomerServicePage() {
 
   if (!serviceId) {
     return <Navigate to="/order" replace />
+  }
+
+  if (!remoteReady || service.id !== serviceId) {
+    return <CustomerShell eyebrow="Choose Service" title="Loading service"><Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">Refreshing live menu and availability...</Card></CustomerShell>
   }
 
   const location = locations.find((entry) => entry.id === service.locationId)
@@ -1119,6 +1124,7 @@ export function CustomerServicePage() {
 
 export function CustomerCheckoutPage() {
   const navigate = useNavigate()
+  const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
   const menuItems = usePizzaOpsStore((state) => state.menuItems)
   const discountCodes = usePizzaOpsStore((state) => state.discountCodes)
   const service = usePizzaOpsStore((state) => state.service)
@@ -1165,6 +1171,10 @@ export function CustomerCheckoutPage() {
 
   if (!draft.serviceId || !draft.basket.length) {
     return <Navigate to="/order" replace />
+  }
+
+  if (!remoteReady || service.id !== draft.serviceId) {
+    return <CustomerShell eyebrow="Checkout" title="Loading service"><Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">Refreshing live slots and stock...</Card></CustomerShell>
   }
 
   function clearBasket() {

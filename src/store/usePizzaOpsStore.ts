@@ -38,6 +38,7 @@ import {
   loadRemoteSnapshot,
   persistRemoteSnapshot,
   subscribeToRemoteSnapshot,
+  subscribeToMasterDataTables,
   subscribeToServiceOpsTables,
 } from '../lib/realtime-state'
 import { supabase } from '../lib/supabase'
@@ -177,6 +178,8 @@ let activeRealtimeServiceId: string | null = null
 let snapshotPersistTimer: ReturnType<typeof setTimeout> | null = null
 let stopOpsTableSubscription: null | (() => void) = null
 let opsTableRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let stopMasterDataSubscription: null | (() => void) = null
+let masterDataRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
 const statusTimestampField: Record<OrderStatus, keyof Order['timestamps']> = {
   taken: 'taken_at',
@@ -1030,6 +1033,7 @@ export const usePizzaOpsStore = create<StoreState>()(
 
           stopRealtimeSubscription?.()
           stopOpsTableSubscription?.()
+          stopMasterDataSubscription?.()
           activeRealtimeServiceId = serviceId
           set({ realtimeStatus: 'connecting' })
           const stop = subscribeToRemoteSnapshot(
@@ -1082,19 +1086,47 @@ export const usePizzaOpsStore = create<StoreState>()(
               })
             },
           )
+          const stopMaster = subscribeToMasterDataTables(
+            () => {
+              if (masterDataRefreshTimer) {
+                clearTimeout(masterDataRefreshTimer)
+              }
+
+              masterDataRefreshTimer = setTimeout(() => {
+                void refreshMasterDataFromTables()
+              }, 80)
+            },
+            (status) => {
+              set({
+                realtimeStatus:
+                  status === 'SUBSCRIBED'
+                    ? 'subscribed'
+                    : status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED'
+                      ? 'error'
+                      : 'connecting',
+              })
+            },
+          )
           stopRealtimeSubscription = stop
           stopOpsTableSubscription = stopOps
+          stopMasterDataSubscription = stopMaster
           return () => {
             stop?.()
             stopOps?.()
+            stopMaster?.()
             if (opsTableRefreshTimer) {
               clearTimeout(opsTableRefreshTimer)
               opsTableRefreshTimer = null
+            }
+            if (masterDataRefreshTimer) {
+              clearTimeout(masterDataRefreshTimer)
+              masterDataRefreshTimer = null
             }
             if (activeRealtimeServiceId === serviceId) {
               activeRealtimeServiceId = null
               stopRealtimeSubscription = null
               stopOpsTableSubscription = null
+              stopMasterDataSubscription = null
             }
             set({ realtimeStatus: 'idle' })
           }
