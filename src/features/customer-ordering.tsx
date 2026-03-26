@@ -1251,7 +1251,7 @@ export function CustomerCheckoutPage() {
         description: `${service.name} order for ${draft.customerName}`,
       })
 
-      updatePaymentCheckout(result.paymentId, {
+      await updatePaymentCheckout(result.paymentId, {
         providerReference: checkout.checkoutId,
         checkoutUrl: checkout.hostedCheckoutUrl,
         status: 'pending',

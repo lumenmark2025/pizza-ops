@@ -98,7 +98,7 @@ type StoreState = ServiceSnapshot & {
   addDelay: (minutes: number, actor: string, reason: string) => void
   pauseService: (minutes: number, actor: string, reason: string) => void
   updatePaymentStatus: (paymentId: string, status: PaymentStatus) => void
-  updatePaymentCheckout: (paymentId: string, updates: { providerReference?: string; checkoutUrl?: string; status?: PaymentStatus }) => void
+  updatePaymentCheckout: (paymentId: string, updates: { providerReference?: string; checkoutUrl?: string; status?: PaymentStatus }) => Promise<void>
   collectOrderPayment: (
     orderId: string,
     input: { paymentMethod: PaymentMethod; actor: string },
@@ -330,12 +330,16 @@ function getRecallTargetStatus(order: Order, history: ServiceSnapshot['history']
 }
 
 function getPaymentProvider(method: PaymentMethod): PaymentRecord['provider'] {
-  return method === 'sumup_online' ? 'sumup' : 'manual'
+  return method === 'sumup_online' || method === 'sumup_terminal' ? 'sumup' : 'manual'
 }
 
 function getPaymentProviderReference(order: Pick<Order, 'reference'>, method: PaymentMethod) {
   if (method === 'sumup_online') {
     return `SUMUP-${order.reference}`
+  }
+
+  if (method === 'sumup_terminal') {
+    return `SUMUP-TERM-${order.reference}`
   }
 
   if (method === 'cash') {
@@ -365,7 +369,10 @@ function rebuildPaymentsFromOrders(orders: Order[], existingPayments: PaymentRec
           method,
           status: order.paymentStatus,
           amount: order.totalAmount,
-          providerReference: existing?.providerReference ?? getPaymentProviderReference(order, method),
+          providerReference:
+            order.paymentReference ??
+            existing?.providerReference ??
+            getPaymentProviderReference(order, method),
           checkoutUrl: existing?.checkoutUrl,
           createdAt: existing?.createdAt ?? order.createdAt,
           updatedAt: existing?.updatedAt ?? order.createdAt,
@@ -600,6 +607,7 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
     pricing_summary: order.pricingSummary ?? null,
     payment_status: order.paymentStatus,
     payment_method: order.paymentMethod,
+    payment_reference: order.paymentReference ?? null,
     pager_number: order.pagerNumber ?? null,
     receipt_email_status: order.receiptEmailStatus,
     receipt_sent_at: order.receiptSentAt,
@@ -1189,7 +1197,11 @@ export const usePizzaOpsStore = create<StoreState>()(
           const totalAmount = pricingSummary.finalTotalAmount
 
           const paymentStatus: PaymentStatus =
-            isDeferredPreorder || durablePaymentMethod === 'sumup_online' ? 'pending' : 'paid'
+            isDeferredPreorder ||
+            durablePaymentMethod === 'sumup_online' ||
+            durablePaymentMethod === 'sumup_terminal'
+              ? 'pending'
+              : 'paid'
           const orderNumber = 100 + state.orders.length + 1
 
           const order: Order = {
@@ -1216,6 +1228,13 @@ export const usePizzaOpsStore = create<StoreState>()(
             pricingSummary,
             paymentStatus,
             paymentMethod: durablePaymentMethod,
+            paymentReference:
+              durablePaymentMethod != null
+                ? getPaymentProviderReference(
+                    { reference: `PZ-${orderNumber}` },
+                    durablePaymentMethod,
+                  )
+                : null,
             receiptEmailStatus: customer.email
               ? paymentStatus === 'paid'
                 ? 'pending'
@@ -1246,9 +1265,8 @@ export const usePizzaOpsStore = create<StoreState>()(
                   status: paymentStatus,
                   amount: totalAmount,
                   providerReference:
-                    durablePaymentMethod === 'sumup_online'
-                      ? paymentId
-                      : getPaymentProviderReference(order, durablePaymentMethod),
+                    order.paymentReference ??
+                    getPaymentProviderReference(order, durablePaymentMethod),
                   checkoutUrl:
                     durablePaymentMethod === 'sumup_online' ? `/payments/${paymentId}` : undefined,
                   createdAt: now,
@@ -1363,7 +1381,10 @@ export const usePizzaOpsStore = create<StoreState>()(
           return {
             ok: true as const,
             orderId,
-            paymentId: durablePaymentMethod === 'sumup_online' ? paymentId : undefined,
+            paymentId:
+              durablePaymentMethod === 'sumup_online' || durablePaymentMethod === 'sumup_terminal'
+                ? paymentId
+                : undefined,
           }
         },
         updateOrderStatus: (orderId, nextStatus) => {
@@ -1590,9 +1611,16 @@ export const usePizzaOpsStore = create<StoreState>()(
           const nextOrder: Order = {
             ...order,
             paymentMethod: input.paymentMethod,
-            paymentStatus: input.paymentMethod === 'sumup_online' ? 'pending' : 'paid',
+            paymentStatus:
+              input.paymentMethod === 'sumup_online' || input.paymentMethod === 'sumup_terminal'
+                ? 'pending'
+                : 'paid',
+            paymentReference:
+              input.paymentMethod === 'sumup_online' || input.paymentMethod === 'sumup_terminal'
+                ? getPaymentProviderReference(order, input.paymentMethod)
+                : getPaymentProviderReference(order, input.paymentMethod),
             receiptEmailStatus:
-              input.paymentMethod === 'sumup_online'
+              input.paymentMethod === 'sumup_online' || input.paymentMethod === 'sumup_terminal'
                 ? order.receiptEmailStatus
                 : order.customerEmail
                   ? order.receiptEmailStatus === 'sent'
@@ -1611,7 +1639,7 @@ export const usePizzaOpsStore = create<StoreState>()(
                 createActivity(
                   'payment_updated',
                   input.actor,
-                  `${order.reference} payment captured as ${input.paymentMethod.replaceAll('_', ' ')}.`,
+                  `${order.reference} payment ${nextOrder.paymentStatus === 'paid' ? 'captured' : 'started'} as ${input.paymentMethod.replaceAll('_', ' ')}.`,
                   order.id,
                 ),
                 ...current.activityLog,
@@ -1707,7 +1735,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             void mirrorOrderToSupabase(syncedOrder, state.service.id)
           }
         },
-        updatePaymentCheckout: (paymentId, updates) => {
+        updatePaymentCheckout: async (paymentId, updates) => {
           const state = get()
           const payment = state.payments.find((entry) => entry.id === paymentId)
           if (!payment) {
@@ -1728,7 +1756,13 @@ export const usePizzaOpsStore = create<StoreState>()(
                 : entry,
             ),
             orders: current.orders.map((entry) =>
-              entry.id === payment.orderId ? { ...entry, paymentStatus: nextStatus } : entry,
+              entry.id === payment.orderId
+                ? {
+                    ...entry,
+                    paymentStatus: nextStatus,
+                    paymentReference: updates.providerReference ?? entry.paymentReference ?? payment.providerReference,
+                  }
+                : entry,
             ),
             activityLog: [
               createActivity('payment_updated', 'payments', `Payment ${paymentId} checkout session updated.`, payment.orderId),
@@ -1737,7 +1771,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           }))
           const syncedOrder = get().orders.find((entry) => entry.id === payment.orderId)
           if (syncedOrder) {
-            void mirrorOrderToSupabase(syncedOrder, state.service.id)
+            await mirrorOrderToSupabase(syncedOrder, state.service.id)
           }
         },
         retryLoyverseSync: (queueId) => {

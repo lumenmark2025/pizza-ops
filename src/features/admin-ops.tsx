@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
+import { createTerminalSumUpCheckout } from '../integrations/sumup'
 import { getOrderPaymentLabel, isDeferredPreorder } from '../lib/order-flow'
 import { isUuidValue } from '../lib/service-data'
 import { generateServiceSlots, getAvailableSlots, getInventorySummary } from '../lib/slot-engine'
@@ -52,6 +53,7 @@ export function ServiceEditPanel() {
   const applyInventoryDefaults = usePizzaOpsStore((state) => state.applyInventoryDefaults)
   const assignPager = usePizzaOpsStore((state) => state.assignPager)
   const collectOrderPayment = usePizzaOpsStore((state) => state.collectOrderPayment)
+  const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
 
   const [delayMinutes, setDelayMinutes] = useState(10)
   const [pauseMinutes, setPauseMinutes] = useState(15)
@@ -101,6 +103,43 @@ export function ServiceEditPanel() {
     () => preorderOrders.find((order) => order.id === recalledOrderId) ?? null,
     [preorderOrders, recalledOrderId],
   )
+
+  async function sendOrderToTerminal(orderId: string) {
+    const payment = payments.find((entry) => entry.orderId === orderId)
+
+    try {
+      if (payment) {
+        await updatePaymentCheckout(payment.id, {
+          status: 'pending',
+        })
+      } else {
+        const result = await collectOrderPayment(orderId, {
+          paymentMethod: 'sumup_terminal',
+          actor: 'manager',
+        })
+
+        if (!result.ok) {
+          return result
+        }
+      }
+
+      const checkout = await createTerminalSumUpCheckout({ orderId })
+      const nextPayment = usePizzaOpsStore.getState().payments.find((entry) => entry.orderId === orderId)
+      if (nextPayment) {
+        await usePizzaOpsStore.getState().updatePaymentCheckout(nextPayment.id, {
+          providerReference: checkout.checkoutId,
+          status: 'pending',
+        })
+      }
+
+      return { ok: true as const }
+    } catch (error) {
+      return {
+        ok: false as const,
+        error: error instanceof Error ? error.message : 'Unable to start terminal payment.',
+      }
+    }
+  }
 
   useEffect(() => {
     setServiceForm({
@@ -317,10 +356,10 @@ export function ServiceEditPanel() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Button variant="secondary" onClick={() => {
                       setOrderActionMessage(null)
-                      void collectOrderPayment(recalledOrder.id, { paymentMethod: 'manual', actor: 'manager' }).then((result) => {
-                        setOrderActionMessage(result.ok ? 'Preorder paid by tap to pay and released to ops screens.' : result.error)
+                      void sendOrderToTerminal(recalledOrder.id).then((result) => {
+                        setOrderActionMessage(result.ok ? 'Waiting for payment on terminal. The preorder stays out of ops screens until webhook confirmation.' : result.error)
                       })
-                    }}>Take tap to pay</Button>
+                    }}>Send to card terminal</Button>
                   </div>
                   {orderActionMessage ? <p className="mt-3 text-sm font-medium text-slate-600">{orderActionMessage}</p> : null}
                 </div>
@@ -358,6 +397,34 @@ export function ServiceEditPanel() {
                     </div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
+                    {order.paymentMethod === 'sumup_terminal' && order.paymentStatus !== 'paid' ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setSaveError(null)
+                          void sendOrderToTerminal(order.id).then((result) => {
+                            setSaveError(result.ok ? null : result.error)
+                          })
+                        }}
+                      >
+                        {order.paymentStatus === 'failed' ? 'Retry card terminal' : 'Resend to terminal'}
+                      </Button>
+                    ) : null}
+                    {order.paymentStatus !== 'paid' ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSaveError(null)
+                          void collectOrderPayment(order.id, { paymentMethod: 'cash', actor: 'manager' }).then((result) => {
+                            setSaveError(result.ok ? null : result.error)
+                          })
+                        }}
+                      >
+                        Take cash
+                      </Button>
+                    ) : null}
                     <Link to={`/ops/${service.id}?customerName=${encodeURIComponent(order.customerName ?? '')}&mobile=${encodeURIComponent(order.customerMobile ?? '')}&email=${encodeURIComponent(order.customerEmail ?? '')}&source=manual&notes=${encodeURIComponent(`Add-on for ${order.reference}`)}`}>
                       <Button size="sm" variant="outline">{isEditableOrder(order) ? 'Continue in order entry' : 'New add-on order'}</Button>
                     </Link>

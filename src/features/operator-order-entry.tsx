@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
-import { createHostedSumUpCheckout } from '../integrations/sumup'
+import { createHostedSumUpCheckout, createTerminalSumUpCheckout } from '../integrations/sumup'
 import { type AdminOrderEntryPaymentOption } from '../lib/order-flow'
 import {
   applyItemDiscount,
@@ -29,7 +29,8 @@ const orderSources: OrderSource[] = ['walkup', 'web', 'phone', 'whatsapp', 'mess
 const paymentMethods: AdminOrderEntryPaymentOption[] = ['sumup_online', 'tap_to_pay', 'cash', 'preorder']
 const paymentMethodLabels: Record<AdminOrderEntryPaymentOption, string> = {
   sumup_online: 'SumUp',
-  tap_to_pay: 'Tap to Pay',
+  sumup_terminal: 'Card terminal',
+  tap_to_pay: 'Card',
   cash: 'Cash',
   preorder: 'Preorder',
   manual: 'Tap to Pay',
@@ -356,7 +357,7 @@ export function OrderEntryPage() {
       paymentMethod === 'preorder'
         ? null
         : paymentMethod === 'tap_to_pay'
-          ? 'manual'
+          ? 'sumup_terminal'
           : paymentMethod
 
     const result = await createOrder({
@@ -386,7 +387,7 @@ export function OrderEntryPage() {
           description: `${service.name} order for ${customerName}`,
         })
 
-        updatePaymentCheckout(result.paymentId, {
+        await updatePaymentCheckout(result.paymentId, {
           providerReference: checkout.checkoutId,
           checkoutUrl: checkout.hostedCheckoutUrl,
           status: 'pending',
@@ -397,6 +398,38 @@ export function OrderEntryPage() {
       } catch (error) {
         setMessage(
           `${error instanceof Error ? error.message : 'Unable to start SumUp checkout.'} The order is saved and the basket has been kept.`,
+        )
+        setIsSubmitting(false)
+        return
+      }
+    }
+
+    if (paymentMethod === 'tap_to_pay' && result.paymentId) {
+      try {
+        const checkout = await createTerminalSumUpCheckout({
+          orderId: result.orderId,
+        })
+
+        await updatePaymentCheckout(result.paymentId, {
+          providerReference: checkout.checkoutId,
+          status: 'pending',
+        })
+
+        setBasket([])
+        setCustomerName('')
+        setMobile('')
+        setEmail('')
+        setNotes('')
+        setPagerNumber('')
+        setOrderDiscountDraft(null)
+        setDiscountCodeInput('')
+        setDiscountMessage(null)
+        setMessage('Waiting for payment on terminal. The order stays pending until SumUp confirms it by webhook.')
+        setIsSubmitting(false)
+        return
+      } catch (error) {
+        setMessage(
+          `${error instanceof Error ? error.message : 'Unable to start terminal payment.'} The order is saved and can be retried or switched to cash from Admin Ops.`,
         )
         setIsSubmitting(false)
         return
@@ -637,7 +670,7 @@ export function OrderEntryPage() {
             </p>
           ) : null}
           <Button className="mt-4 w-full" size="lg" onClick={() => void submitOrder()} disabled={isSubmitting}>
-            {isSubmitting ? 'Starting checkout...' : paymentMethod === 'sumup_online' ? 'Pay with SumUp' : paymentMethod === 'preorder' ? 'Create preorder' : 'Place order'}
+            {isSubmitting ? 'Starting checkout...' : paymentMethod === 'sumup_online' ? 'Pay with SumUp' : paymentMethod === 'tap_to_pay' ? 'Send to card terminal' : paymentMethod === 'preorder' ? 'Create preorder' : 'Place order'}
           </Button>
           {message ? <p className="mt-3 text-sm text-orange-200">{message}</p> : null}
         </div>

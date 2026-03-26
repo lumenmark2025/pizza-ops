@@ -8,6 +8,7 @@ export type OrderSource =
   | 'manual'
 export type PaymentMethod =
   | 'sumup_online'
+  | 'sumup_terminal'
   | 'cash'
   | 'manual'
 export type PaymentStatus = 'pending' | 'authorized' | 'paid' | 'failed' | 'refunded'
@@ -221,6 +222,7 @@ export type Order = {
   pricingSummary?: PricingSummary
   paymentStatus: PaymentStatus
   paymentMethod: PaymentMethod | null
+  paymentReference?: string | null
   receiptEmailStatus?: 'not_requested' | 'pending' | 'sending' | 'sent' | 'failed'
   receiptSentAt?: string | null
   receiptLastError?: string | null

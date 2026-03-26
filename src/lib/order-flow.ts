@@ -16,10 +16,16 @@ export function isAwaitingOnlineCheckout(
   )
 }
 
+export function isAwaitingTerminalPayment(
+  order: Pick<Order, 'paymentMethod' | 'paymentStatus'>,
+) {
+  return order.paymentMethod === 'sumup_terminal' && order.paymentStatus === 'pending'
+}
+
 export function isReleasedToOps(
   order: Pick<Order, 'source' | 'paymentMethod' | 'paymentStatus'>,
 ) {
-  return !isAwaitingOnlineCheckout(order)
+  return !isAwaitingOnlineCheckout(order) && !isAwaitingTerminalPayment(order)
 }
 
 export function getOrderPaymentLabel(order: Pick<Order, 'paymentMethod' | 'paymentStatus'>) {
@@ -29,6 +35,10 @@ export function getOrderPaymentLabel(order: Pick<Order, 'paymentMethod' | 'payme
 
   if (order.paymentMethod === 'sumup_online') {
     return 'SumUp'
+  }
+
+  if (order.paymentMethod === 'sumup_terminal') {
+    return 'Card terminal'
   }
 
   if (order.paymentMethod === 'cash') {

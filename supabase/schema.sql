@@ -171,6 +171,7 @@ create table if not exists orders (
   pager_number integer,
   payment_status text not null,
   payment_method text not null,
+  payment_reference text,
   receipt_email_status text not null default 'not_requested',
   receipt_sent_at timestamptz,
   receipt_last_error text,

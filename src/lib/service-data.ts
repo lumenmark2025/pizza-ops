@@ -76,6 +76,7 @@ type OrderRow = {
   pricing_summary?: Order['pricingSummary'] | null
   payment_status?: Order['paymentStatus'] | null
   payment_method?: Order['paymentMethod'] | null
+  payment_reference?: string | null
   receipt_email_status?: Order['receiptEmailStatus'] | null
   receipt_sent_at?: string | null
   receipt_last_error?: string | null
@@ -138,7 +139,7 @@ function deriveLastCollectionTime(endTimeIso: string, slotMinutes: number) {
 
 function normalizePaymentMethod(value?: string | null): Order['paymentMethod'] {
   if (value === 'terminal' || value === 'tap_to_pay') {
-    return 'manual'
+    return 'sumup_terminal'
   }
 
   return (value as Order['paymentMethod']) ?? null
@@ -462,7 +463,7 @@ export async function loadOrdersForService(serviceId: string) {
 
   const { data, error } = await supabase!
     .from('orders')
-    .select('id, service_id, order_number, source, customer_name, customer_mobile, customer_email, auth_user_id, status, promised_collection_time, subtotal_pence, discount_pence, total_pence, applied_discount_code_id, applied_discount_summary, pricing_summary, payment_status, payment_method, receipt_email_status, receipt_sent_at, receipt_last_error, loyverse_sync_status, notes, pager_number, taken_at, prepping_at, in_oven_at, ready_at, completed_at, created_at, order_items(id, menu_item_id, item_name, quantity, original_unit_price_pence, item_discount_pence, final_unit_price_pence, notes, order_item_modifiers(modifier_name, price_delta_pence))')
+    .select('id, service_id, order_number, source, customer_name, customer_mobile, customer_email, auth_user_id, status, promised_collection_time, subtotal_pence, discount_pence, total_pence, applied_discount_code_id, applied_discount_summary, pricing_summary, payment_status, payment_method, payment_reference, receipt_email_status, receipt_sent_at, receipt_last_error, loyverse_sync_status, notes, pager_number, taken_at, prepping_at, in_oven_at, ready_at, completed_at, created_at, order_items(id, menu_item_id, item_name, quantity, original_unit_price_pence, item_discount_pence, final_unit_price_pence, notes, order_item_modifiers(modifier_name, price_delta_pence))')
     .eq('service_id', serviceId)
     .order('created_at', { ascending: false })
 
@@ -511,6 +512,7 @@ export async function loadOrdersForService(serviceId: string) {
       pricingSummary: row.pricing_summary ?? undefined,
       paymentStatus: (row.payment_status as Order['paymentStatus']) ?? 'pending',
       paymentMethod: normalizePaymentMethod(row.payment_method),
+      paymentReference: row.payment_reference ?? null,
       receiptEmailStatus: row.receipt_email_status ?? 'not_requested',
       receiptSentAt: row.receipt_sent_at ?? null,
       receiptLastError: row.receipt_last_error ?? null,
