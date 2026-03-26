@@ -317,10 +317,28 @@ export function ServiceEditPage() {
   const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
   const service = usePizzaOpsStore((state) => state.service)
   const services = usePizzaOpsStore((state) => state.services)
+  const [loadingService, setLoadingService] = useState(true)
 
   useEffect(() => {
-    if (serviceId) {
-      loadServiceForEditing(serviceId)
+    if (!serviceId) {
+      setLoadingService(false)
+      return
+    }
+
+    let cancelled = false
+    setLoadingService(true)
+    loadServiceForEditing(serviceId)
+    void usePizzaOpsStore
+      .getState()
+      .hydrateRemote()
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingService(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
     }
   }, [loadServiceForEditing, serviceId])
 
@@ -328,7 +346,7 @@ export function ServiceEditPage() {
     return <Navigate to="/admin/services" replace />
   }
 
-  if (service.id !== serviceId && !services.some((entry) => entry.id === serviceId)) {
+  if (loadingService || service.id !== serviceId || !services.some((entry) => entry.id === serviceId)) {
     return (
       <Card className="mx-auto max-w-5xl p-5 sm:p-6">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Services</p>

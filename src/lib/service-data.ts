@@ -387,23 +387,36 @@ export async function loadServiceInventoryFromSupabase(
 ) {
   ensureSupabase('Service inventory load')
 
-  const quantityResult = await supabase!
-    .from('service_inventory')
-    .select('service_id, ingredient_id, quantity, starting_quantity, reserved_quantity, used_quantity')
-    .eq('service_id', serviceId)
+  const selectRows = async () => {
+    const quantityResult = await supabase!
+      .from('service_inventory')
+      .select('service_id, ingredient_id, quantity, starting_quantity, reserved_quantity, used_quantity')
+      .eq('service_id', serviceId)
 
-  const fallbackResult =
-    isMissingColumnError(quantityResult.error, 'quantity')
-      ? await supabase!
-          .from('service_inventory')
-          .select('service_id, ingredient_id, starting_quantity, reserved_quantity, used_quantity')
-          .eq('service_id', serviceId)
-      : null
+    const fallbackResult =
+      isMissingColumnError(quantityResult.error, 'quantity')
+        ? await supabase!
+            .from('service_inventory')
+            .select('service_id, ingredient_id, starting_quantity, reserved_quantity, used_quantity')
+            .eq('service_id', serviceId)
+        : null
 
-  const result = fallbackResult ?? quantityResult
+    return fallbackResult ?? quantityResult
+  }
+
+  let result = await selectRows()
 
   if (result.error) {
     throw new Error(`Service inventory load failed. ${result.error.message}`)
+  }
+
+  if (((result.data ?? []) as ServiceInventoryRow[]).length === 0 && ingredients.length) {
+    await seedServiceInventoryFromDefaults(serviceId)
+    result = await selectRows()
+
+    if (result.error) {
+      throw new Error(`Service inventory load failed. ${result.error.message}`)
+    }
   }
 
   const rowMap = new Map(
@@ -415,7 +428,7 @@ export async function loadServiceInventoryFromSupabase(
 
   return ingredients.map<ServiceInventory>((ingredient) => ({
     ingredientId: ingredient.id,
-    quantity: rowMap.get(ingredient.id) ?? Number(ingredient.defaultStockAmount ?? 0),
+    quantity: rowMap.get(ingredient.id) ?? 0,
   }))
 }
 
