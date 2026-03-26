@@ -972,7 +972,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             await refreshMasterDataFromTables()
 
             if (!canUseRealtimeSync()) {
-              set({ remoteReady: true })
+              set({ remoteReady: true, realtimeStatus: 'idle' })
               return
             }
 
@@ -1022,6 +1022,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           }
 
           if (!canUseRealtimeSync()) {
+            set({ realtimeStatus: 'idle' })
             return null
           }
 
