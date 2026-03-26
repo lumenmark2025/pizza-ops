@@ -315,6 +315,7 @@ export function ServiceNewPage() {
 export function ServiceEditPage() {
   const { serviceId } = useParams()
   const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
+  const refreshInventoryForService = usePizzaOpsStore((state) => state.refreshInventoryForService)
   const service = usePizzaOpsStore((state) => state.service)
   const services = usePizzaOpsStore((state) => state.services)
   const [loadingService, setLoadingService] = useState(true)
@@ -328,9 +329,10 @@ export function ServiceEditPage() {
     let cancelled = false
     setLoadingService(true)
     loadServiceForEditing(serviceId)
-    void usePizzaOpsStore
-      .getState()
-      .hydrateRemote()
+    void refreshInventoryForService(serviceId)
+      .catch(() => {
+        // Error is already surfaced through store state for the admin panel.
+      })
       .finally(() => {
         if (!cancelled) {
           setLoadingService(false)
@@ -340,7 +342,7 @@ export function ServiceEditPage() {
     return () => {
       cancelled = true
     }
-  }, [loadServiceForEditing, serviceId])
+  }, [loadServiceForEditing, refreshInventoryForService, serviceId])
 
   if (!serviceId) {
     return <Navigate to="/admin/services" replace />

@@ -118,6 +118,7 @@ type StoreState = ServiceSnapshot & {
   upsertLocation: (location: Location, actor: string) => Promise<Location>
   createFreshService: (input: Partial<ServiceConfig>, actor: string, options?: { applyInventoryDefaults?: boolean }) => Promise<string>
   loadServiceForEditing: (serviceId: string) => boolean
+  refreshInventoryForService: (serviceId: string) => Promise<void>
   duplicateService: (serviceId: string, actor: string) => Promise<string | null>
   archiveService: (serviceId: string, actor: string) => Promise<void>
   upsertIngredient: (ingredient: Ingredient, defaultQuantity: number, actor: string) => Promise<void>
@@ -2010,6 +2011,25 @@ export const usePizzaOpsStore = create<StoreState>()(
             activityLog: serviceId === current.service.id ? current.activityLog : [],
           }))
           return true
+        },
+        refreshInventoryForService: async (serviceId) => {
+          try {
+            const state = get()
+            const inventory = await loadServiceInventoryFromSupabase(serviceId, state.ingredients)
+            set((current) => ({
+              inventory:
+                current.service.id === serviceId
+                  ? inventory
+                  : current.inventory,
+              masterDataLoadError: null,
+            }))
+          } catch (error) {
+            set({
+              masterDataLoadError:
+                error instanceof Error ? error.message : 'Service inventory load failed.',
+            })
+            throw error
+          }
         },
         duplicateService: async (serviceId, actor) => {
           const state = get()
