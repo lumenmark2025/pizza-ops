@@ -650,6 +650,13 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
     variant === 'queue'
       ? [...activeOrders.slice(KDS2_FEATURED_ORDER_COUNT), ...readyOrders]
       : []
+  console.info('[pizza-ops] KdsSurface render', {
+    variant,
+    serviceId: service.id,
+    orders: orders.length,
+    activeOrders: activeOrders.length,
+    realtimeStatus,
+  })
 
   const handleProgressTap = (orderId: string, itemId: string) => {
     const tapKey = `${orderId}:${itemId}`
@@ -813,6 +820,7 @@ function KdsSurface({ variant }: { variant: 'classic' | 'queue' }) {
 }
 
 export function KdsPage() {
+  console.info('[pizza-ops] KdsPage render')
   return <KdsSurface variant="classic" />
 }
 

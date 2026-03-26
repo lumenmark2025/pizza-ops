@@ -962,14 +962,25 @@ export const usePizzaOpsStore = create<StoreState>()(
           }
 
           const serviceId = get().service.id
+          console.info('[pizza-ops] hydrateRemote invoked', {
+            serviceId,
+            currentServiceId: get().service.id,
+          })
           if (hydrateRemotePromise && hydrateRemoteServiceId === serviceId) {
             return hydrateRemotePromise
           }
 
           hydrateRemoteServiceId = serviceId
           hydrateRemotePromise = (async () => {
-            console.info('[pizza-ops] hydrateRemote invoked')
             await refreshMasterDataFromTables()
+
+            if (get().service.id !== serviceId) {
+              console.info('[pizza-ops] hydrateRemote stale abort after master data refresh', {
+                requestedServiceId: serviceId,
+                currentServiceId: get().service.id,
+              })
+              return
+            }
 
             if (!canUseRealtimeSync()) {
               set({ remoteReady: true, realtimeStatus: 'idle' })
@@ -988,6 +999,13 @@ export const usePizzaOpsStore = create<StoreState>()(
             applyingRemoteSnapshot = false
 
             const remote = await loadRemoteSnapshot(serviceId)
+            if (get().service.id !== serviceId) {
+              console.info('[pizza-ops] hydrateRemote stale abort after remote snapshot load', {
+                requestedServiceId: serviceId,
+                currentServiceId: get().service.id,
+              })
+              return
+            }
             if (remote) {
               const normalizedRemote = mergeOperationalSnapshot(getPersistableSnapshot(get()), remote)
               const remoteJson = JSON.stringify(getOperationalSnapshot(normalizedRemote))

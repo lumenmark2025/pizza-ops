@@ -104,12 +104,20 @@ function ServiceScopedRoute({ children }: { children: ReactNode }) {
   const service = usePizzaOpsStore((state) => state.service)
   const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
 
+  console.info('[pizza-ops] ServiceScopedRoute render', {
+    serviceId,
+    activeServiceId: service.id,
+    remoteReady,
+  })
+
   useEffect(() => {
     if (!serviceId) {
       return
     }
 
+    console.info('[pizza-ops] ServiceScopedRoute loadServiceForEditing start', { serviceId })
     void loadServiceForEditing(serviceId)
+    console.info('[pizza-ops] ServiceScopedRoute loadServiceForEditing end', { serviceId })
   }, [loadServiceForEditing, serviceId])
 
   if (!serviceId) {
@@ -172,22 +180,37 @@ function App() {
       return
     }
 
+    console.info('[pizza-ops] App service bootstrap effect', {
+      activeServiceId,
+      pathname: location.pathname,
+    })
     let cancelled = false
     let stop: null | (() => void) = null
 
     void usePizzaOpsStore.getState().hydrateRemote().then(() => {
+      console.info('[pizza-ops] App hydrateRemote complete', {
+        activeServiceId,
+        cancelled,
+        safeMode: SAFE_MODE,
+      })
       if (cancelled || SAFE_MODE) {
         return
       }
 
+      console.info('[pizza-ops] App startRealtime start', { activeServiceId })
       stop = usePizzaOpsStore.getState().startRealtime()
+      console.info('[pizza-ops] App startRealtime end', {
+        activeServiceId,
+        started: Boolean(stop),
+      })
     })
 
     return () => {
       cancelled = true
+      console.info('[pizza-ops] App service bootstrap cleanup', { activeServiceId })
       stop?.()
     }
-  }, [activeServiceId])
+  }, [activeServiceId, location.pathname])
 
   const routes = (
     <Routes>
