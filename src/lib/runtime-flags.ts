@@ -1,2 +1,3 @@
-// Temporary recovery flag. Keep this `true` while stabilising local-only startup.
-export const SAFE_MODE = true
+const safeModeFlag = String(import.meta.env.VITE_SAFE_MODE ?? '').toLowerCase()
+
+export const SAFE_MODE = ['true', '1', 'yes', 'on'].includes(safeModeFlag)
