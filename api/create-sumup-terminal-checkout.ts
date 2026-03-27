@@ -5,7 +5,7 @@ import { getSumUpConfig, sumupRequest } from './_lib/sumup.js'
 
 type OrderRow = {
   id: string
-  reference: string
+  order_number: number | null
   customer_name: string | null
   total_pence: number | null
   payment_status: string | null
@@ -44,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { data, error: orderError } = await supabase
       .from('orders')
-      .select('id, reference, customer_name, total_pence, payment_status, payment_method')
+      .select('id, order_number, customer_name, total_pence, payment_status, payment_method')
       .eq('id', orderId)
       .maybeSingle()
 
@@ -62,6 +62,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(409).json({ error: 'Order is already paid.' })
     }
 
+    const orderReference =
+      typeof order.order_number === 'number' && Number.isFinite(order.order_number)
+        ? `PZ-${order.order_number}`
+        : order.id
+
     const activeTerminalId = await resolveActiveReaderId(supabase, 'sumup')
 
     if (!activeTerminalId) {
@@ -76,7 +81,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         method: 'POST',
         body: JSON.stringify({
           affiliate: affiliateKey,
-          description: `${order.reference} ${order.customer_name ?? 'card payment'}`.trim(),
+          description: `${orderReference} ${order.customer_name ?? 'card payment'}`.trim(),
           return_url: `${webhookBaseUrl}/api/payments/sumup-webhook`,
           total_amount: {
             currency: 'GBP',
