@@ -120,11 +120,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     )
 
-    const providerReference = checkout.data?.client_transaction_id ?? checkout.id ?? null
+    const checkoutId = checkout.id ?? null
 
-    if (!providerReference) {
+    if (!checkoutId) {
       return res.status(502).json({
-        error: 'SumUp checkout response was missing a client transaction identifier.',
+        error: 'SumUp checkout response was missing a checkout identifier.',
       })
     }
 
@@ -133,7 +133,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .update({
         payment_status: 'pending',
         payment_method: 'sumup_terminal',
-        payment_reference: providerReference,
+        payment_reference: checkoutId,
       })
       .eq('id', order.id)
 
@@ -142,7 +142,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(200).json({
-      checkoutId: providerReference,
+      checkoutId,
       paymentStatus: 'pending',
     })
   } catch (error) {

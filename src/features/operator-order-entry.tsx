@@ -5,7 +5,11 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
-import { createHostedSumUpCheckout, createTerminalSumUpCheckout } from '../integrations/sumup'
+import {
+  createHostedSumUpCheckout,
+  createTerminalSumUpCheckout,
+  pollTerminalSumUpCheckoutStatus,
+} from '../integrations/sumup'
 import { type AdminOrderEntryPaymentOption } from '../lib/order-flow'
 import {
   applyItemDiscount,
@@ -66,6 +70,7 @@ export function OrderEntryPage() {
   const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
+  const updatePaymentStatus = usePizzaOpsStore((state) => state.updatePaymentStatus)
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
   const [customerName, setCustomerName] = useState('')
   const [mobile, setMobile] = useState('')
@@ -406,11 +411,12 @@ export function OrderEntryPage() {
 
     if (paymentMethod === 'tap_to_pay' && result.paymentId) {
       try {
+        const paymentId = result.paymentId
         const checkout = await createTerminalSumUpCheckout({
           orderId: result.orderId,
         })
 
-        await updatePaymentCheckout(result.paymentId, {
+        await updatePaymentCheckout(paymentId, {
           providerReference: checkout.checkoutId,
           status: 'pending',
         })
@@ -424,8 +430,28 @@ export function OrderEntryPage() {
         setOrderDiscountDraft(null)
         setDiscountCodeInput('')
         setDiscountMessage(null)
-        setMessage('Waiting for payment on terminal. The order stays pending until SumUp confirms it by webhook.')
+        setMessage('Waiting for payment on terminal...')
         setIsSubmitting(false)
+
+        void pollTerminalSumUpCheckoutStatus({
+          orderId: result.orderId,
+          checkoutId: checkout.checkoutId,
+          onUpdate: (status) => {
+            if (!status.finalized) {
+              return
+            }
+
+            updatePaymentStatus(paymentId, status.paymentStatus)
+            setMessage(
+              status.paymentStatus === 'paid'
+                ? 'Terminal payment confirmed.'
+                : 'Terminal payment was cancelled or failed. The order remains unpaid and can be retried or switched to cash from Admin Ops.',
+            )
+          },
+        }).catch((error) => {
+          console.error('terminal-payment polling error', error)
+          setMessage('Terminal payment is still pending. You can retry or switch to cash from Admin Ops if needed.')
+        })
         return
       } catch (error) {
         setMessage(

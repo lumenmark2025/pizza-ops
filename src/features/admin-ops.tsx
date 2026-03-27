@@ -6,7 +6,10 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
-import { createTerminalSumUpCheckout } from '../integrations/sumup'
+import {
+  createTerminalSumUpCheckout,
+  pollTerminalSumUpCheckoutStatus,
+} from '../integrations/sumup'
 import { getOrderPaymentLabel, isDeferredPreorder } from '../lib/order-flow'
 import { isUuidValue } from '../lib/service-data'
 import { generateServiceSlots, getAvailableSlots, getInventorySummary } from '../lib/slot-engine'
@@ -281,6 +284,7 @@ export function ServiceEditPanel() {
   const assignPager = usePizzaOpsStore((state) => state.assignPager)
   const collectOrderPayment = usePizzaOpsStore((state) => state.collectOrderPayment)
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
+  const updatePaymentStatus = usePizzaOpsStore((state) => state.updatePaymentStatus)
 
   const [delayMinutes, setDelayMinutes] = useState(10)
   const [pauseMinutes, setPauseMinutes] = useState(15)
@@ -356,6 +360,26 @@ export function ServiceEditPanel() {
         await usePizzaOpsStore.getState().updatePaymentCheckout(nextPayment.id, {
           providerReference: checkout.checkoutId,
           status: 'pending',
+        })
+
+        void pollTerminalSumUpCheckoutStatus({
+          orderId,
+          checkoutId: checkout.checkoutId,
+          onUpdate: (status) => {
+            if (!status.finalized) {
+              return
+            }
+
+            updatePaymentStatus(nextPayment.id, status.paymentStatus)
+            setOrderActionMessage(
+              status.paymentStatus === 'paid'
+                ? 'Terminal payment confirmed.'
+                : 'Terminal payment was cancelled or failed. The order remains unpaid and can be retried or switched to cash.',
+            )
+          },
+        }).catch((error) => {
+          console.error('terminal-payment polling error', error)
+          setOrderActionMessage('Terminal payment is still pending. You can retry the terminal or take cash.')
         })
       }
 
@@ -584,7 +608,7 @@ export function ServiceEditPanel() {
                     <Button variant="secondary" onClick={() => {
                       setOrderActionMessage(null)
                       void sendOrderToTerminal(recalledOrder.id).then((result) => {
-                        setOrderActionMessage(result.ok ? 'Waiting for payment on terminal. The preorder stays out of ops screens until webhook confirmation.' : result.error)
+                        setOrderActionMessage(result.ok ? 'Waiting for payment on terminal...' : result.error)
                       })
                     }}>Send to card terminal</Button>
                   </div>
