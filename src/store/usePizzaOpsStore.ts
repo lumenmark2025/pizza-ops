@@ -2014,8 +2014,30 @@ export const usePizzaOpsStore = create<StoreState>()(
         },
         refreshInventoryForService: async (serviceId) => {
           try {
-            const state = get()
-            const inventory = await loadServiceInventoryFromSupabase(serviceId, state.ingredients)
+            let state = get()
+            let ingredients = state.ingredients
+
+            if (!ingredients.length) {
+              const masterDataResult = await loadMasterDataFromSupabase(getPersistableSnapshot(state))
+              if (!masterDataResult.patch) {
+                throw new Error(masterDataResult.error ?? 'Ingredient load failed.')
+              }
+
+              set((current) => ({
+                ingredients: masterDataResult.patch?.ingredients ?? current.ingredients,
+                inventoryDefaults: masterDataResult.patch?.inventoryDefaults ?? current.inventoryDefaults,
+                menuItems: masterDataResult.patch?.menuItems ?? current.menuItems,
+                recipes: masterDataResult.patch?.recipes ?? current.recipes,
+                modifiers: masterDataResult.patch?.modifiers ?? current.modifiers,
+                masterDataLoadError: masterDataResult.error,
+                masterDataLoadWarnings: masterDataResult.warnings,
+              }))
+
+              state = get()
+              ingredients = state.ingredients
+            }
+
+            const inventory = await loadServiceInventoryFromSupabase(serviceId, ingredients)
             set((current) => ({
               inventory:
                 current.service.id === serviceId
