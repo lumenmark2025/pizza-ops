@@ -267,27 +267,6 @@ function getOperationalSnapshot(state: ServiceSnapshot): ServiceSnapshot {
   return snapshot
 }
 
-function getBlankOperationalState(snapshot: ServiceSnapshot, serviceId: string): ServiceSnapshot {
-  const targetService = snapshot.services.find((entry) => entry.id === serviceId) ?? snapshot.service
-
-  return normalizeSnapshot({
-    ...snapshot,
-    service: {
-      ...targetService,
-      delayMinutes: targetService.delayMinutes ?? 0,
-      pausedUntil: targetService.pausedUntil ?? null,
-      pauseReason: targetService.pauseReason ?? null,
-    },
-    inventory: [],
-    customers: [],
-    orders: [],
-    history: [],
-    payments: [],
-    loyverseQueue: [],
-    activityLog: [],
-  })
-}
-
 function mergeOperationalSnapshot(current: ServiceSnapshot, runtimeSnapshot: ServiceSnapshot): ServiceSnapshot {
   const merged = { ...current } as ServiceSnapshot
 
@@ -989,15 +968,7 @@ export const usePizzaOpsStore = create<StoreState>()(
             }
 
             const current = getPersistableSnapshot(get())
-            const blankState = getBlankOperationalState(current, serviceId)
-            const blankRemoteState = getOperationalSnapshot(blankState)
-            applyingRemoteSnapshot = true
-            set({
-              ...blankState,
-              remoteReady: false,
-              realtimeStatus: 'connecting',
-            })
-            applyingRemoteSnapshot = false
+            const currentOperationalState = getOperationalSnapshot(current)
 
             const remote = await loadRemoteSnapshot(serviceId)
             if (get().service.id !== serviceId) {
@@ -1008,9 +979,9 @@ export const usePizzaOpsStore = create<StoreState>()(
               return
             }
             if (remote) {
-              const normalizedRemote = mergeOperationalSnapshot(getPersistableSnapshot(get()), remote)
+              const normalizedRemote = mergeOperationalSnapshot(current, remote)
               const remoteJson = JSON.stringify(getOperationalSnapshot(normalizedRemote))
-              const localJson = JSON.stringify(blankRemoteState)
+              const localJson = JSON.stringify(currentOperationalState)
 
               if (remoteJson !== localJson) {
                 applyingRemoteSnapshot = true
@@ -1021,13 +992,21 @@ export const usePizzaOpsStore = create<StoreState>()(
                 })
                 applyingRemoteSnapshot = false
               } else {
-                set({ ...blankState, remoteReady: true, lastRemoteSyncAt: toIsoNow() })
+                set({
+                  ...current,
+                  remoteReady: true,
+                  lastRemoteSyncAt: toIsoNow(),
+                })
               }
               return
             }
 
-            await persistRemoteSnapshot(blankRemoteState)
-            set({ ...blankState, remoteReady: true, lastRemoteSyncAt: toIsoNow() })
+            await persistRemoteSnapshot(currentOperationalState)
+            set({
+              ...current,
+              remoteReady: true,
+              lastRemoteSyncAt: toIsoNow(),
+            })
           })().finally(() => {
             hydrateRemotePromise = null
             hydrateRemoteServiceId = null
