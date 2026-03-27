@@ -805,8 +805,10 @@ export function CustomerServicePage() {
   const discountCodes = usePizzaOpsStore((state) => state.discountCodes)
   const modifiers = usePizzaOpsStore((state) => state.modifiers)
   const loadServiceForEditing = usePizzaOpsStore((state) => state.loadServiceForEditing)
+  const refreshInventoryForService = usePizzaOpsStore((state) => state.refreshInventoryForService)
   const { draft, patchDraft } = usePublicDraft()
   const [editor, setEditor] = useState<PizzaEditorState | null>(null)
+  const [loadingInventory, setLoadingInventory] = useState(true)
   const {
     discountCodeInput,
     setDiscountCodeInput,
@@ -818,10 +820,28 @@ export function CustomerServicePage() {
   } = useCustomerVoucher(draft, patchDraft, discountCodes, menuItems)
 
   useEffect(() => {
-    if (serviceId && service.id !== serviceId) {
-      loadServiceForEditing(serviceId)
+    if (!serviceId) {
+      setLoadingInventory(false)
+      return
     }
-  }, [loadServiceForEditing, service.id, serviceId])
+
+    let cancelled = false
+    setLoadingInventory(true)
+    loadServiceForEditing(serviceId)
+    void refreshInventoryForService(serviceId)
+      .catch(() => {
+        // Error is already surfaced through store state.
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingInventory(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadServiceForEditing, refreshInventoryForService, serviceId])
 
   useEffect(() => {
     if (serviceId && draft.serviceId !== serviceId) {
@@ -844,7 +864,7 @@ export function CustomerServicePage() {
     return <Navigate to="/order" replace />
   }
 
-  if (!remoteReady || service.id !== serviceId) {
+  if (!remoteReady || loadingInventory || service.id !== serviceId) {
     return <CustomerShell eyebrow="Choose Service" title="Loading service"><Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">Refreshing live menu and availability...</Card></CustomerShell>
   }
 
