@@ -3,6 +3,9 @@ import { supabase, supabaseEnabled } from './supabase'
 import type { ServiceSnapshot } from '../types/domain'
 
 const TABLE = 'service_runtime_state'
+export type ServiceOpsRealtimeEvent =
+  | { table: 'orders'; eventType: 'INSERT' | 'UPDATE' | 'DELETE'; orderId: string | null }
+  | { table: 'order_items' | 'order_item_modifiers' | 'service_inventory' | 'services'; eventType: string; orderId?: string | null }
 
 export function canUseRealtimeSync() {
   return Boolean(supabase && supabaseEnabled)
@@ -89,7 +92,7 @@ export function subscribeToRemoteSnapshot(
 
 export function subscribeToServiceOpsTables(
   serviceId: string,
-  onChange: (table: 'orders' | 'order_items' | 'order_item_modifiers' | 'service_inventory' | 'services') => void,
+  onChange: (event: ServiceOpsRealtimeEvent) => void,
   onStatus?: (status: string) => void,
 ) {
   if (!supabase) {
@@ -106,7 +109,21 @@ export function subscribeToServiceOpsTables(
         table: 'orders',
         filter: `service_id=eq.${serviceId}`,
       },
-      () => onChange('orders'),
+      (payload) => {
+        const next = payload.new as { id?: string } | null
+        const previous = payload.old as { id?: string } | null
+        const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE'
+        console.info('[pizza-ops] service ops orders event', {
+          serviceId,
+          eventType,
+          orderId: next?.id ?? previous?.id ?? null,
+        })
+        onChange({
+          table: 'orders',
+          eventType,
+          orderId: next?.id ?? previous?.id ?? null,
+        })
+      },
     )
     .on(
       'postgres_changes',
@@ -119,7 +136,11 @@ export function subscribeToServiceOpsTables(
         const next = payload.new as { order_id?: string } | null
         const previous = payload.old as { order_id?: string } | null
         if ((next?.order_id ?? previous?.order_id) != null) {
-          onChange('order_items')
+          onChange({
+            table: 'order_items',
+            eventType: payload.eventType,
+            orderId: next?.order_id ?? previous?.order_id ?? null,
+          })
         }
       },
     )
@@ -130,7 +151,7 @@ export function subscribeToServiceOpsTables(
         schema: 'public',
         table: 'order_item_modifiers',
       },
-      () => onChange('order_item_modifiers'),
+      (payload) => onChange({ table: 'order_item_modifiers', eventType: payload.eventType }),
     )
     .on(
       'postgres_changes',
@@ -140,7 +161,7 @@ export function subscribeToServiceOpsTables(
         table: 'service_inventory',
         filter: `service_id=eq.${serviceId}`,
       },
-      () => onChange('service_inventory'),
+      (payload) => onChange({ table: 'service_inventory', eventType: payload.eventType }),
     )
     .on(
       'postgres_changes',
@@ -150,7 +171,7 @@ export function subscribeToServiceOpsTables(
         table: 'services',
         filter: `id=eq.${serviceId}`,
       },
-      () => onChange('services'),
+      (payload) => onChange({ table: 'services', eventType: payload.eventType }),
     )
     .subscribe((status) => {
       onStatus?.(status)
