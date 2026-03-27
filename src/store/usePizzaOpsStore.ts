@@ -179,6 +179,7 @@ let hydrateRemoteServiceId: string | null = null
 let activeRealtimeServiceId: string | null = null
 let snapshotPersistTimer: ReturnType<typeof setTimeout> | null = null
 let stopOpsTableSubscription: null | (() => void) = null
+let opsTableRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let stopMasterDataSubscription: null | (() => void) = null
 let masterDataRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -1105,14 +1106,18 @@ export const usePizzaOpsStore = create<StoreState>()(
           )
           const stopOps = subscribeToServiceOpsTables(
             serviceId,
-            (event) => {
+            (table) => {
               console.info('[pizza-ops] realtime ops handler', {
                 serviceId,
-                table: event.table,
-                eventType: event.eventType,
-                orderId: 'orderId' in event ? event.orderId ?? null : null,
+                table,
               })
-              void refreshOperationalTablesForService(serviceId)
+              if (opsTableRefreshTimer) {
+                clearTimeout(opsTableRefreshTimer)
+              }
+
+              opsTableRefreshTimer = setTimeout(() => {
+                void refreshOperationalTablesForService(serviceId)
+              }, 60)
             },
             (status) => {
               set({
@@ -1153,6 +1158,10 @@ export const usePizzaOpsStore = create<StoreState>()(
             stop?.()
             stopOps?.()
             stopMaster?.()
+            if (opsTableRefreshTimer) {
+              clearTimeout(opsTableRefreshTimer)
+              opsTableRefreshTimer = null
+            }
             if (masterDataRefreshTimer) {
               clearTimeout(masterDataRefreshTimer)
               masterDataRefreshTimer = null
