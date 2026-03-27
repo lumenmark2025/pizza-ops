@@ -169,8 +169,7 @@ const SNAPSHOT_KEYS = [
 ] as const
 
 const CANONICAL_MASTER_DATA_KEYS = ['ingredients', 'menuItems', 'recipes', 'modifiers'] as const
-const RUNTIME_SYNC_KEYS = ['customers', 'history', 'loyverseQueue', 'activityLog'] as const
-const DB_CANONICAL_RUNTIME_KEYS = ['orders', 'payments'] as const
+const RUNTIME_SYNC_KEYS = ['customers', 'orders', 'history', 'payments', 'loyverseQueue', 'activityLog'] as const
 
 let applyingRemoteSnapshot = false
 let stopRealtimeSubscription: null | (() => void) = null
@@ -273,13 +272,6 @@ function mergeOperationalSnapshot(current: ServiceSnapshot, runtimeSnapshot: Ser
 
   for (const key of RUNTIME_SYNC_KEYS) {
     ;(merged as Record<string, unknown>)[key] = runtimeSnapshot[key]
-  }
-
-  // DB-backed live slices stay canonical in Zustand. Runtime snapshots are allowed
-  // to augment non-DB operational state, but they must not wipe fresh orders/payments
-  // with stale empty arrays from service_runtime_state.
-  for (const key of DB_CANONICAL_RUNTIME_KEYS) {
-    ;(merged as Record<string, unknown>)[key] = current[key]
   }
 
   return normalizeSnapshot(merged)
@@ -840,9 +832,6 @@ export const usePizzaOpsStore = create<StoreState>()(
       }
 
       const refreshMasterDataFromTables = async () => {
-        console.info('[pizza-ops] refreshMasterDataFromTables start', {
-          serviceId: get().service.id,
-        })
         const currentSnapshot = getPersistableSnapshot(get())
         const result = await loadMasterDataFromSupabase(currentSnapshot)
         if (!result.patch) {
@@ -867,11 +856,6 @@ export const usePizzaOpsStore = create<StoreState>()(
             : result.patch.inventoryDefaults.map((entry) => ({ ...entry }))
           const orders = activeService?.id ? await loadOrdersForService(activeService.id) : []
           const payments = rebuildPaymentsFromOrders(orders, get().payments)
-          console.info('[pizza-ops] refreshMasterDataFromTables loaded', {
-            serviceId: activeService?.id ?? null,
-            orders: orders.length,
-            inventory: inventory.length,
-          })
 
           commit(
             () => ({
@@ -914,7 +898,6 @@ export const usePizzaOpsStore = create<StoreState>()(
 
       const refreshOperationalTablesForService = async (serviceId: string) => {
         try {
-          console.info('[pizza-ops] refreshOperationalTablesForService start', { serviceId })
           const state = get()
           const [services, orders, inventory] = await Promise.all([
             loadServicesFromSupabase(),
@@ -933,15 +916,6 @@ export const usePizzaOpsStore = create<StoreState>()(
             inventory,
             lastRemoteSyncAt: toIsoNow(),
             masterDataLoadError: null,
-          })
-          console.info('[pizza-ops] refreshOperationalTablesForService loaded', {
-            serviceId,
-            orders: orders.length,
-            inventory: inventory.length,
-          })
-          console.info('[pizza-ops] refreshOperationalTablesForService state.orders after write', {
-            serviceId,
-            orders: get().orders.length,
           })
         } catch (error) {
           set({
@@ -1005,13 +979,6 @@ export const usePizzaOpsStore = create<StoreState>()(
               return
             }
             if (remote) {
-              console.info('[pizza-ops] hydrateRemote remote snapshot counts', {
-                serviceId,
-                currentOrders: current.orders.length,
-                remoteOrders: Array.isArray(remote.orders) ? remote.orders.length : null,
-                currentPayments: current.payments.length,
-                remotePayments: Array.isArray(remote.payments) ? remote.payments.length : null,
-              })
               const normalizedRemote = mergeOperationalSnapshot(current, remote)
               const remoteJson = JSON.stringify(getOperationalSnapshot(normalizedRemote))
               const localJson = JSON.stringify(currentOperationalState)
@@ -1058,7 +1025,6 @@ export const usePizzaOpsStore = create<StoreState>()(
           }
 
           const serviceId = get().service.id
-          console.info('[pizza-ops] startRealtime invoked', { serviceId })
           if (stopRealtimeSubscription && activeRealtimeServiceId === serviceId) {
             console.info('[pizza-ops] startRealtime skipped duplicate', serviceId)
             return stopRealtimeSubscription
@@ -1072,15 +1038,8 @@ export const usePizzaOpsStore = create<StoreState>()(
           const stop = subscribeToRemoteSnapshot(
             serviceId,
             (snapshot) => {
+              const normalizedSnapshot = mergeOperationalSnapshot(getPersistableSnapshot(get()), snapshot)
               const currentSnapshot = getPersistableSnapshot(get())
-              console.info('[pizza-ops] realtime snapshot merge counts', {
-                serviceId,
-                currentOrders: currentSnapshot.orders.length,
-                remoteOrders: Array.isArray(snapshot.orders) ? snapshot.orders.length : null,
-                currentPayments: currentSnapshot.payments.length,
-                remotePayments: Array.isArray(snapshot.payments) ? snapshot.payments.length : null,
-              })
-              const normalizedSnapshot = mergeOperationalSnapshot(currentSnapshot, snapshot)
               if (
                 JSON.stringify(getOperationalSnapshot(currentSnapshot)) ===
                 JSON.stringify(getOperationalSnapshot(normalizedSnapshot))
@@ -1106,11 +1065,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           )
           const stopOps = subscribeToServiceOpsTables(
             serviceId,
-            (table) => {
-              console.info('[pizza-ops] realtime ops handler', {
-                serviceId,
-                table,
-              })
+            () => {
               if (opsTableRefreshTimer) {
                 clearTimeout(opsTableRefreshTimer)
               }

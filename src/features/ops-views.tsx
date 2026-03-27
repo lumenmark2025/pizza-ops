@@ -38,45 +38,6 @@ const BOARD_STATUSES: Array<'taken' | 'prepping' | 'in_oven' | 'ready'> = [
   'in_oven',
   'ready',
 ]
-const boardStageStyles: Record<
-  (typeof BOARD_STATUSES)[number],
-  {
-    panel: string
-    stripe: string
-    eyebrow: string
-    tileBorder: string
-    tileGlow: string
-  }
-> = {
-  taken: {
-    panel: 'border-sky-400/20 bg-sky-500/10',
-    stripe: 'bg-sky-400',
-    eyebrow: 'text-sky-100',
-    tileBorder: 'border-sky-400/30',
-    tileGlow: 'shadow-[0_18px_35px_rgba(14,165,233,0.16)]',
-  },
-  prepping: {
-    panel: 'border-amber-400/20 bg-amber-500/10',
-    stripe: 'bg-amber-400',
-    eyebrow: 'text-amber-100',
-    tileBorder: 'border-amber-400/30',
-    tileGlow: 'shadow-[0_18px_35px_rgba(245,158,11,0.16)]',
-  },
-  in_oven: {
-    panel: 'border-orange-400/20 bg-orange-500/10',
-    stripe: 'bg-orange-400',
-    eyebrow: 'text-orange-100',
-    tileBorder: 'border-orange-400/30',
-    tileGlow: 'shadow-[0_18px_35px_rgba(249,115,22,0.16)]',
-  },
-  ready: {
-    panel: 'border-emerald-400/20 bg-emerald-500/10',
-    stripe: 'bg-emerald-400',
-    eyebrow: 'text-emerald-100',
-    tileBorder: 'border-emerald-400/35',
-    tileGlow: 'shadow-[0_18px_35px_rgba(16,185,129,0.18)]',
-  },
-}
 const DOUBLE_TAP_WINDOW_MS = 350
 const RECENTLY_CLEARED_LIMIT = 5
 const KDS2_FEATURED_ORDER_COUNT = 4
@@ -1066,17 +1027,6 @@ export function CustomerBoardPage() {
     in_oven: sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'in_oven')),
     ready: sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'ready')),
   }
-  console.info('[pizza-ops] CustomerBoardPage render', {
-    serviceId: service.id,
-    orders: orders.length,
-    grouped: {
-      taken: grouped.taken.length,
-      prepping: grouped.prepping.length,
-      inOven: grouped.in_oven.length,
-      ready: grouped.ready.length,
-    },
-    realtimeStatus,
-  })
 
   return (
     <DisplayShell
@@ -1097,62 +1047,27 @@ export function CustomerBoardPage() {
       ) : null}
       <div className="grid gap-4 lg:grid-cols-4">
         {BOARD_STATUSES.map((status) => (
-          <Card
-            key={status}
-            className={cn(
-              'min-h-[24rem] rounded-[24px] border border-white/10 bg-white/5 p-4 text-white shadow-none backdrop-blur sm:p-5',
-              boardStageStyles[status].panel,
-            )}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
-              <div>
-                <p className={cn('text-[11px] font-semibold uppercase tracking-[0.28em]', boardStageStyles[status].eyebrow)}>
-                  Board stage
-                </p>
-                <h2 className="mt-1 font-display text-3xl font-bold tracking-tight text-white">
-                  {titleCase(status)}
-                </h2>
-              </div>
+          <Card key={status} className={cn('min-h-[24rem] p-4 sm:p-5', statusStyles[status].card)}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-2xl font-bold">{titleCase(status)}</h2>
               <Badge variant={statusStyles[status].badge}>{grouped[status].length}</Badge>
             </div>
             <div className="mt-4 space-y-3">
               {grouped[status].map((order) => (
-                <div
-                  key={order.id}
-                  className={cn(
-                    'overflow-hidden rounded-[22px] border bg-slate-950/78 text-white',
-                    boardStageStyles[status].tileBorder,
-                    boardStageStyles[status].tileGlow,
-                  )}
-                >
-                  <div className={cn('h-1.5', boardStageStyles[status].stripe)} />
-                  <div className="p-4 sm:p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">
-                          {order.reference}
-                        </p>
-                        <p className="mt-2 font-display text-2xl font-bold leading-tight text-white sm:text-[2rem]">
-                          {getCustomerName(order, customers)}
-                        </p>
-                      </div>
-                      <div className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm font-semibold text-white">
-                        {formatTime(order.promisedTime)}
-                      </div>
-                    </div>
-                    <p className="mt-3 text-sm font-medium text-slate-200">
-                      {status === 'ready' ? 'Ready to collect' : `Now ${titleCase(status)}`}
-                    </p>
+                <div key={order.id} className="rounded-xl bg-white/90 p-4 shadow-sm">
+                  <p className="text-xl font-semibold">{getCustomerName(order, customers)}</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {order.reference} / {formatTime(order.promisedTime)}
+                  </p>
                   {order.pagerNumber ? (
-                    <p className="mt-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
+                    <p className="mt-1 text-xs font-semibold text-slate-500">
                       Pager {order.pagerNumber}
                     </p>
                   ) : null}
                 </div>
-                </div>
               ))}
               {!grouped[status].length ? (
-                <div className="rounded-[22px] border border-white/10 bg-slate-950/45 p-5 text-base font-medium text-slate-300">
+                <div className="rounded-xl border border-white/60 bg-white/65 p-4 text-sm text-slate-500">
                   No orders in this stage.
                 </div>
               ) : null}

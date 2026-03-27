@@ -95,65 +95,6 @@ type OrderRow = {
   order_items?: OrderItemRow[] | null
 }
 
-function mapOrderRow(row: OrderRow): Order {
-  const items = (row.order_items ?? []).map<OrderItem>((item) => ({
-    id: item.id,
-    menuItemId: item.menu_item_id,
-    quantity: item.quantity,
-    notes: item.notes ?? '',
-    progressCount: item.progress_count ?? 0,
-    originalUnitPrice: Number(item.original_unit_price_pence ?? 0) / 100 || undefined,
-    itemDiscountAmount: Number(item.item_discount_pence ?? 0) / 100 || undefined,
-    finalUnitPrice: Number(item.final_unit_price_pence ?? 0) / 100 || undefined,
-    modifiers: (item.order_item_modifiers ?? []).map((modifier) => ({
-      modifierId: modifier.modifier_name,
-      name: modifier.modifier_name,
-      priceDelta: Number(modifier.price_delta_pence ?? 0) / 100,
-      quantity: modifier.quantity ?? 1,
-    })),
-  }))
-
-  return {
-    id: row.id,
-    reference: `PZ-${row.order_number}`,
-    customerId: row.id,
-    customerName: row.customer_name,
-    customerMobile: row.customer_mobile ?? undefined,
-    customerEmail: row.customer_email ?? undefined,
-    authUserId: row.auth_user_id ?? null,
-    source: row.source,
-    status: row.status,
-    promisedTime: row.promised_collection_time ?? row.created_at,
-    slotAllocations: [],
-    notes: row.notes ?? '',
-    pizzaCount: items.reduce((sum, item) => sum + item.quantity, 0),
-    subtotalAmount: Number(row.subtotal_pence ?? 0) / 100,
-    totalDiscountAmount: Number(row.discount_pence ?? 0) / 100,
-    orderDiscountAmount: Number(row.discount_pence ?? 0) / 100,
-    totalAmount: Number(row.total_pence ?? 0) / 100,
-    appliedDiscountCodeId: row.applied_discount_code_id ?? null,
-    appliedDiscountSummary: row.applied_discount_summary ?? null,
-    pricingSummary: row.pricing_summary ?? undefined,
-    paymentStatus: (row.payment_status as Order['paymentStatus']) ?? 'pending',
-    paymentMethod: normalizePaymentMethod(row.payment_method),
-    paymentReference: row.payment_reference ?? null,
-    receiptEmailStatus: row.receipt_email_status ?? 'not_requested',
-    receiptSentAt: row.receipt_sent_at ?? null,
-    receiptLastError: row.receipt_last_error ?? null,
-    loyaltySyncStatus: row.loyverse_sync_status ?? 'pending',
-    createdAt: row.created_at,
-    pagerNumber: row.pager_number ?? null,
-    timestamps: {
-      taken_at: row.taken_at,
-      prepping_at: row.prepping_at ?? null,
-      in_oven_at: row.in_oven_at ?? null,
-      ready_at: row.ready_at ?? null,
-      completed_at: row.completed_at ?? null,
-    },
-    items,
-  }
-}
-
 function ensureSupabase(operation: string) {
   if (!supabase) {
     throw new Error(supabaseConfigError ?? getSupabaseClientError(operation))
@@ -546,5 +487,62 @@ export async function loadOrdersForService(serviceId: string) {
     throw new Error(`Service order load failed. ${error.message}`)
   }
 
-  return ((data ?? []) as OrderRow[]).map(mapOrderRow)
+  return ((data ?? []) as OrderRow[]).map((row) => {
+    const items = (row.order_items ?? []).map<OrderItem>((item) => ({
+      id: item.id,
+      menuItemId: item.menu_item_id,
+      quantity: item.quantity,
+      notes: item.notes ?? '',
+      progressCount: item.progress_count ?? 0,
+      originalUnitPrice: Number(item.original_unit_price_pence ?? 0) / 100 || undefined,
+      itemDiscountAmount: Number(item.item_discount_pence ?? 0) / 100 || undefined,
+      finalUnitPrice: Number(item.final_unit_price_pence ?? 0) / 100 || undefined,
+      modifiers: (item.order_item_modifiers ?? []).map((modifier) => ({
+        modifierId: modifier.modifier_name,
+        name: modifier.modifier_name,
+        priceDelta: Number(modifier.price_delta_pence ?? 0) / 100,
+        quantity: modifier.quantity ?? 1,
+      })),
+    }))
+
+    return {
+      id: row.id,
+      reference: `PZ-${row.order_number}`,
+      customerId: row.id,
+      customerName: row.customer_name,
+      customerMobile: row.customer_mobile ?? undefined,
+      customerEmail: row.customer_email ?? undefined,
+      authUserId: row.auth_user_id ?? null,
+      source: row.source,
+      status: row.status,
+      promisedTime: row.promised_collection_time ?? row.created_at,
+      slotAllocations: [],
+      notes: row.notes ?? '',
+      pizzaCount: items.reduce((sum, item) => sum + item.quantity, 0),
+      subtotalAmount: Number(row.subtotal_pence ?? 0) / 100,
+      totalDiscountAmount: Number(row.discount_pence ?? 0) / 100,
+      orderDiscountAmount: Number(row.discount_pence ?? 0) / 100,
+      totalAmount: Number(row.total_pence ?? 0) / 100,
+      appliedDiscountCodeId: row.applied_discount_code_id ?? null,
+      appliedDiscountSummary: row.applied_discount_summary ?? null,
+      pricingSummary: row.pricing_summary ?? undefined,
+      paymentStatus: (row.payment_status as Order['paymentStatus']) ?? 'pending',
+      paymentMethod: normalizePaymentMethod(row.payment_method),
+      paymentReference: row.payment_reference ?? null,
+      receiptEmailStatus: row.receipt_email_status ?? 'not_requested',
+      receiptSentAt: row.receipt_sent_at ?? null,
+      receiptLastError: row.receipt_last_error ?? null,
+      loyaltySyncStatus: row.loyverse_sync_status ?? 'pending',
+      createdAt: row.created_at,
+      pagerNumber: row.pager_number ?? null,
+      timestamps: {
+        taken_at: row.taken_at,
+        prepping_at: row.prepping_at ?? null,
+        in_oven_at: row.in_oven_at ?? null,
+        ready_at: row.ready_at ?? null,
+        completed_at: row.completed_at ?? null,
+      },
+      items,
+    }
+  })
 }
