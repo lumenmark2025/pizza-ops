@@ -13,8 +13,11 @@ type OrderRow = {
 }
 
 type SumUpReaderCheckout = {
-  id: string
+  id?: string | null
   status?: string | null
+  data?: {
+    client_transaction_id?: string | null
+  } | null
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -27,11 +30,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'Missing Supabase server environment variables' })
   }
 
-  const { merchantCode, affiliateKey, webhookBaseUrl } = getSumUpConfig()
-  if (!merchantCode || !affiliateKey || !webhookBaseUrl) {
+  const { merchantCode, affiliateKey, affiliateAppId, webhookBaseUrl } = getSumUpConfig()
+  if (!merchantCode || !affiliateKey || !affiliateAppId || !webhookBaseUrl) {
     return res.status(500).json({
       error:
-        'Missing SumUp terminal configuration. Expected SUMUP_MERCHANT_CODE, SUMUP_AFFILIATE_KEY, and APP_BASE_URL/VERCEL_URL.',
+        'Missing SumUp terminal configuration. Expected SUMUP_MERCHANT_CODE, SUMUP_AFFILIATE_KEY, SUMUP_APP_ID/SUMUP_AFFILIATE_APP_ID, and APP_BASE_URL/VERCEL_URL.',
+    })
+  }
+
+  if (!webhookBaseUrl.startsWith('https://')) {
+    return res.status(500).json({
+      error: 'SumUp return_url must be HTTPS. Set APP_BASE_URL/VERCEL_URL to an https origin.',
     })
   }
 
@@ -75,29 +84,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
     }
 
+    const checkoutPayload = {
+      affiliate: {
+        app_id: affiliateAppId,
+        foreign_transaction_id: order.id,
+        key: affiliateKey,
+      },
+      description: `${orderReference} ${order.customer_name ?? 'card payment'}`.trim(),
+      return_url: `${webhookBaseUrl}/api/payments/sumup-webhook`,
+      total_amount: {
+        currency: 'GBP',
+        minor_unit: 2,
+        value: Number(order.total_pence ?? 0),
+      },
+    }
+
+    console.info('sumup-terminal-checkout request', {
+      merchantCode,
+      readerId: activeTerminalId,
+      payload: {
+        ...checkoutPayload,
+        affiliate: {
+          app_id: checkoutPayload.affiliate.app_id,
+          foreign_transaction_id: checkoutPayload.affiliate.foreign_transaction_id,
+          key: '[redacted]',
+        },
+      },
+    })
+
     const checkout = await sumupRequest<SumUpReaderCheckout>(
       `/v0.1/merchants/${merchantCode}/readers/${activeTerminalId}/checkout`,
       {
         method: 'POST',
-        body: JSON.stringify({
-          affiliate: affiliateKey,
-          description: `${orderReference} ${order.customer_name ?? 'card payment'}`.trim(),
-          return_url: `${webhookBaseUrl}/api/payments/sumup-webhook`,
-          total_amount: {
-            currency: 'GBP',
-            minor_unit: 2,
-            value: Number(order.total_pence ?? 0),
-          },
-        }),
+        body: JSON.stringify(checkoutPayload),
       },
     )
+
+    const providerReference = checkout.data?.client_transaction_id ?? checkout.id ?? null
+
+    if (!providerReference) {
+      return res.status(502).json({
+        error: 'SumUp checkout response was missing a client transaction identifier.',
+      })
+    }
 
     const { error: updateError } = await supabase
       .from('orders')
       .update({
         payment_status: 'pending',
         payment_method: 'sumup_terminal',
-        payment_reference: checkout.id,
+        payment_reference: providerReference,
       })
       .eq('id', order.id)
 
@@ -106,7 +142,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(200).json({
-      checkoutId: checkout.id,
+      checkoutId: providerReference,
       paymentStatus: 'pending',
     })
   } catch (error) {

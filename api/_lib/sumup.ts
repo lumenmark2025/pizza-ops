@@ -4,6 +4,7 @@ export function getSumUpConfig() {
   const apiKey = process.env.SUMUP_API_KEY
   const merchantCode = process.env.SUMUP_MERCHANT_CODE
   const affiliateKey = process.env.SUMUP_AFFILIATE_KEY
+  const affiliateAppId = process.env.SUMUP_AFFILIATE_APP_ID || process.env.SUMUP_APP_ID
   const terminalId =
     process.env.SUMUP_SOLO_TERMINAL_ID ||
     process.env.SUMUP_SOLO_READER_ID ||
@@ -17,6 +18,7 @@ export function getSumUpConfig() {
     apiKey,
     merchantCode,
     affiliateKey,
+    affiliateAppId,
     terminalId,
     apiUrl: SUMUP_API_URL,
     webhookBaseUrl: webhookBaseUrl
@@ -44,8 +46,19 @@ export async function sumupRequest<T>(path: string, init?: RequestInit): Promise
   })
 
   const data = (await response.json().catch(() => null)) as T | { detail?: string; message?: string } | null
+  console.info('sumupRequest response', {
+    path,
+    method: init?.method ?? 'GET',
+    status: response.status,
+  })
 
   if (!response.ok) {
+    console.error('sumupRequest error body', {
+      path,
+      method: init?.method ?? 'GET',
+      status: response.status,
+      body: data,
+    })
     const detail =
       data && typeof data === 'object'
         ? ('detail' in data && typeof data.detail === 'string'
@@ -55,7 +68,10 @@ export async function sumupRequest<T>(path: string, init?: RequestInit): Promise
               : null)
         : null
 
-    throw new Error(detail ?? `SumUp request failed with status ${response.status}.`)
+    throw new Error(
+      detail ??
+        (data ? `SumUp request failed with status ${response.status}: ${JSON.stringify(data)}` : `SumUp request failed with status ${response.status}.`),
+    )
   }
 
   return data as T
