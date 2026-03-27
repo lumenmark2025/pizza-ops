@@ -169,7 +169,8 @@ const SNAPSHOT_KEYS = [
 ] as const
 
 const CANONICAL_MASTER_DATA_KEYS = ['ingredients', 'menuItems', 'recipes', 'modifiers'] as const
-const RUNTIME_SYNC_KEYS = ['customers', 'orders', 'history', 'payments', 'loyverseQueue', 'activityLog'] as const
+const RUNTIME_SYNC_KEYS = ['customers', 'history', 'loyverseQueue', 'activityLog'] as const
+const DB_CANONICAL_RUNTIME_KEYS = ['orders', 'payments'] as const
 
 let applyingRemoteSnapshot = false
 let stopRealtimeSubscription: null | (() => void) = null
@@ -178,7 +179,6 @@ let hydrateRemoteServiceId: string | null = null
 let activeRealtimeServiceId: string | null = null
 let snapshotPersistTimer: ReturnType<typeof setTimeout> | null = null
 let stopOpsTableSubscription: null | (() => void) = null
-let opsTableRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let stopMasterDataSubscription: null | (() => void) = null
 let masterDataRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -272,6 +272,17 @@ function mergeOperationalSnapshot(current: ServiceSnapshot, runtimeSnapshot: Ser
 
   for (const key of RUNTIME_SYNC_KEYS) {
     ;(merged as Record<string, unknown>)[key] = runtimeSnapshot[key]
+  }
+
+  console.info('[pizza-ops] mergeOperationalSnapshot preserving db slices', {
+    currentOrders: current.orders.length,
+    runtimeOrders: runtimeSnapshot.orders.length,
+    currentPayments: current.payments.length,
+    runtimePayments: runtimeSnapshot.payments.length,
+  })
+
+  for (const key of DB_CANONICAL_RUNTIME_KEYS) {
+    ;(merged as Record<string, unknown>)[key] = current[key]
   }
 
   return normalizeSnapshot(merged)
@@ -898,6 +909,7 @@ export const usePizzaOpsStore = create<StoreState>()(
 
       const refreshOperationalTablesForService = async (serviceId: string) => {
         try {
+          console.info('[pizza-ops] refreshOperationalTablesForService start', { serviceId })
           const state = get()
           const [services, orders, inventory] = await Promise.all([
             loadServicesFromSupabase(),
@@ -916,6 +928,15 @@ export const usePizzaOpsStore = create<StoreState>()(
             inventory,
             lastRemoteSyncAt: toIsoNow(),
             masterDataLoadError: null,
+          })
+          console.info('[pizza-ops] refreshOperationalTablesForService loaded', {
+            serviceId,
+            orders: orders.length,
+            inventory: inventory.length,
+          })
+          console.info('[pizza-ops] refreshOperationalTablesForService state.orders after write', {
+            serviceId,
+            orders: get().orders.length,
           })
         } catch (error) {
           set({
@@ -1025,6 +1046,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           }
 
           const serviceId = get().service.id
+          console.info('[pizza-ops] startRealtime invoked', { serviceId })
           if (stopRealtimeSubscription && activeRealtimeServiceId === serviceId) {
             console.info('[pizza-ops] startRealtime skipped duplicate', serviceId)
             return stopRealtimeSubscription
@@ -1038,8 +1060,8 @@ export const usePizzaOpsStore = create<StoreState>()(
           const stop = subscribeToRemoteSnapshot(
             serviceId,
             (snapshot) => {
-              const normalizedSnapshot = mergeOperationalSnapshot(getPersistableSnapshot(get()), snapshot)
               const currentSnapshot = getPersistableSnapshot(get())
+              const normalizedSnapshot = mergeOperationalSnapshot(currentSnapshot, snapshot)
               if (
                 JSON.stringify(getOperationalSnapshot(currentSnapshot)) ===
                 JSON.stringify(getOperationalSnapshot(normalizedSnapshot))
@@ -1065,14 +1087,12 @@ export const usePizzaOpsStore = create<StoreState>()(
           )
           const stopOps = subscribeToServiceOpsTables(
             serviceId,
-            () => {
-              if (opsTableRefreshTimer) {
-                clearTimeout(opsTableRefreshTimer)
-              }
-
-              opsTableRefreshTimer = setTimeout(() => {
-                void refreshOperationalTablesForService(serviceId)
-              }, 60)
+            (table) => {
+              console.info('[pizza-ops] realtime ops handler', {
+                serviceId,
+                table,
+              })
+              void refreshOperationalTablesForService(serviceId)
             },
             (status) => {
               set({
@@ -1113,10 +1133,6 @@ export const usePizzaOpsStore = create<StoreState>()(
             stop?.()
             stopOps?.()
             stopMaster?.()
-            if (opsTableRefreshTimer) {
-              clearTimeout(opsTableRefreshTimer)
-              opsTableRefreshTimer = null
-            }
             if (masterDataRefreshTimer) {
               clearTimeout(masterDataRefreshTimer)
               masterDataRefreshTimer = null

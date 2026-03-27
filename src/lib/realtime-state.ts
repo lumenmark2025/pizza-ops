@@ -77,6 +77,11 @@ export function subscribeToRemoteSnapshot(
       },
     )
     .subscribe((status) => {
+      console.info('[pizza-ops] service ops channel status', {
+        serviceId,
+        channel: `service-runtime-${serviceId}`,
+        status,
+      })
       onStatus?.(status)
     })
 
@@ -106,7 +111,16 @@ export function subscribeToServiceOpsTables(
         table: 'orders',
         filter: `service_id=eq.${serviceId}`,
       },
-      () => onChange('orders'),
+      (payload) => {
+        const next = payload.new as { id?: string } | null
+        const previous = payload.old as { id?: string } | null
+        console.info('[pizza-ops] service ops orders event', {
+          serviceId,
+          eventType: payload.eventType,
+          orderId: next?.id ?? previous?.id ?? null,
+        })
+        onChange('orders')
+      },
     )
     .on(
       'postgres_changes',
@@ -153,6 +167,11 @@ export function subscribeToServiceOpsTables(
       () => onChange('services'),
     )
     .subscribe((status) => {
+      console.info('[pizza-ops] service ops channel status', {
+        serviceId,
+        channel: `service-ops-${serviceId}`,
+        status,
+      })
       onStatus?.(status)
     })
 

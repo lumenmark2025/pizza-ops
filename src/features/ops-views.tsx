@@ -1027,6 +1027,17 @@ export function CustomerBoardPage() {
     in_oven: sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'in_oven')),
     ready: sortOrdersByPromise(orders.filter((order) => isReleasedToOps(order) && order.status === 'ready')),
   }
+  console.info('[pizza-ops] CustomerBoardPage render', {
+    serviceId: service.id,
+    orders: orders.length,
+    grouped: {
+      taken: grouped.taken.length,
+      prepping: grouped.prepping.length,
+      inOven: grouped.in_oven.length,
+      ready: grouped.ready.length,
+    },
+    realtimeStatus,
+  })
 
   return (
     <DisplayShell
