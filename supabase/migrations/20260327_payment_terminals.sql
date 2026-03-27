@@ -23,4 +23,8 @@ create index if not exists idx_payment_terminals_location_active
 create index if not exists idx_payment_terminals_provider
   on public.payment_terminals (provider);
 
+create unique index if not exists idx_payment_terminals_single_active
+  on public.payment_terminals ((1))
+  where is_active = true;
+
 commit;

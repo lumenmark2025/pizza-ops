@@ -292,6 +292,10 @@ create index if not exists idx_payment_terminals_location_active
 create index if not exists idx_payment_terminals_provider
   on payment_terminals (provider);
 
+create unique index if not exists idx_payment_terminals_single_active
+  on payment_terminals ((1))
+  where is_active = true;
+
 create table if not exists activity_log (
   id text primary key,
   type text not null,

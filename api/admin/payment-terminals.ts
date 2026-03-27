@@ -16,8 +16,32 @@ type SumUpReader = {
   updated_at?: string | null
 }
 
-function getLocationId(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
+async function setSingleActiveReader(supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>, id: string) {
+  const timestamp = new Date().toISOString()
+  const { error: clearError } = await supabase
+    .from('payment_terminals')
+    .update({ is_active: false, updated_at: timestamp })
+    .neq('id', id)
+    .eq('provider', 'sumup')
+
+  if (clearError) {
+    throw new Error(`Unable to clear active readers. ${clearError.message}`)
+  }
+
+  const { data, error } = await supabase
+    .from('payment_terminals')
+    .update({ is_active: true, updated_at: timestamp })
+    .eq('id', id)
+    .select(
+      'id, provider, reader_id, reader_name, location_id, is_active, provider_status, paired_at, metadata, created_at, updated_at, locations(name)',
+    )
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Unable to activate reader. ${error.message}`)
+  }
+
+  return mapPaymentTerminalAdminDto(data as PaymentTerminalRow)
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -28,8 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     try {
-      const locationId = getLocationId(req.query.locationId)
-      const terminals = await listPaymentTerminals(supabase, { locationId })
+      const terminals = await listPaymentTerminals(supabase)
       return res.status(200).json({ terminals })
     } catch (error) {
       return res.status(500).json({
@@ -46,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      const { pairingCode, readerName, locationId } = req.body ?? {}
+      const { pairingCode, readerName } = req.body ?? {}
 
       if (!pairingCode || typeof pairingCode !== 'string') {
         return res.status(400).json({ error: 'Missing pairingCode.' })
@@ -56,24 +79,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'Missing readerName.' })
       }
 
-      const assignedLocationId = getLocationId(locationId)
-
       const reader = await sumupRequest<SumUpReader>(`/v0.1/merchants/${merchantCode}/readers`, {
         method: 'POST',
         body: JSON.stringify({
           pairing_code: pairingCode.trim().toUpperCase(),
           name: readerName.trim(),
-          metadata: assignedLocationId ? { location_id: assignedLocationId } : {},
+          metadata: {},
         }),
       })
+
+      const { count: activeReaderCount, error: activeCountError } = await supabase
+        .from('payment_terminals')
+        .select('id', { count: 'exact', head: true })
+        .eq('provider', 'sumup')
+        .eq('is_active', true)
+
+      if (activeCountError) {
+        return res.status(500).json({ error: `Active reader lookup failed. ${activeCountError.message}` })
+      }
 
       const now = new Date().toISOString()
       const row = {
         provider: 'sumup',
         reader_id: reader.id,
         reader_name: reader.name,
-        location_id: assignedLocationId,
-        is_active: true,
+        location_id: null,
+        is_active: !activeReaderCount,
         provider_status: reader.status ?? 'paired',
         paired_at: now,
         updated_at: now,
@@ -110,10 +141,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'PATCH') {
     try {
-      const { id, readerName, locationId, isActive } = req.body ?? {}
+      const { id, readerName, isActive } = req.body ?? {}
 
       if (!id || typeof id !== 'string') {
         return res.status(400).json({ error: 'Missing id.' })
+      }
+
+      if (isActive === true) {
+        const terminal = await setSingleActiveReader(supabase, id)
+        return res.status(200).json({ terminal })
       }
 
       const updates: Record<string, unknown> = {
@@ -122,10 +158,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (typeof readerName === 'string' && readerName.trim()) {
         updates.reader_name = readerName.trim()
-      }
-
-      if (locationId === null || typeof locationId === 'string') {
-        updates.location_id = getLocationId(locationId)
       }
 
       if (typeof isActive === 'boolean') {
@@ -143,6 +175,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (error) {
         return res.status(500).json({ error: `Reader update failed. ${error.message}` })
+      }
+
+      if (isActive === false) {
+        const { count: activeReaderCount, error: activeCountError } = await supabase
+          .from('payment_terminals')
+          .select('id', { count: 'exact', head: true })
+          .eq('provider', 'sumup')
+          .eq('is_active', true)
+
+        if (activeCountError) {
+          return res.status(500).json({ error: `Active reader lookup failed. ${activeCountError.message}` })
+        }
+
+        if (!activeReaderCount) {
+          return res.status(409).json({ error: 'At least one reader must remain active. Set another reader active first.' })
+        }
       }
 
       return res.status(200).json({
