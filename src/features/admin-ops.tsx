@@ -13,6 +13,7 @@ import { generateServiceSlots, getAvailableSlots, getInventorySummary } from '..
 import { formatDateTime, formatTime } from '../lib/time'
 import { titleCase } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
+import type { Location } from '../types/domain'
 
 function StatPanel({ icon: Icon, title, value, detail }: { icon: ComponentType<{ className?: string }>; title: string; value: string; detail: string }) {
   return (
@@ -24,6 +25,277 @@ function StatPanel({ icon: Icon, title, value, detail }: { icon: ComponentType<{
           <p className="mt-1 text-2xl font-bold">{value}</p>
           <p className="mt-1 text-sm text-slate-500">{detail}</p>
         </div>
+      </div>
+    </Card>
+  )
+}
+
+type PaymentTerminalAdmin = {
+  id: string
+  provider: string
+  readerId: string
+  readerName: string
+  locationId: string | null
+  locationName: string | null
+  isActive: boolean
+  providerStatus: string
+  pairedAt: string | null
+  createdAt: string
+  updatedAt: string
+  metadata: Record<string, unknown>
+}
+
+async function fetchPaymentTerminals(locationId?: string | null) {
+  const query = locationId ? `?locationId=${encodeURIComponent(locationId)}` : ''
+  const response = await fetch(`/api/admin/payment-terminals${query}`)
+  const payload = (await response.json().catch(() => null)) as
+    | { terminals?: PaymentTerminalAdmin[]; error?: string }
+    | null
+
+  if (!response.ok) {
+    throw new Error(payload?.error ?? 'Unable to load payment terminals.')
+  }
+
+  return payload?.terminals ?? []
+}
+
+function truncateReaderId(readerId: string) {
+  return readerId.length <= 14 ? readerId : `${readerId.slice(0, 8)}…${readerId.slice(-4)}`
+}
+
+function CardReadersPanel({ locations }: { locations: Location[] }) {
+  const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id ?? '')
+  const [readerName, setReaderName] = useState('')
+  const [pairingCode, setPairingCode] = useState('')
+  const [terminals, setTerminals] = useState<PaymentTerminalAdmin[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selectedLocationId && locations[0]?.id) {
+      setSelectedLocationId(locations[0].id)
+    }
+  }, [locations, selectedLocationId])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    void fetchPaymentTerminals()
+      .then((next) => {
+        if (!cancelled) {
+          setTerminals(next)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMessage(error instanceof Error ? error.message : 'Unable to load payment terminals.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function pairReader() {
+    setSaving(true)
+    setMessage(null)
+    try {
+      const response = await fetch('/api/admin/payment-terminals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          pairingCode,
+          readerName,
+          locationId: selectedLocationId || null,
+        }),
+      })
+
+      const payload = (await response.json().catch(() => null)) as
+        | { terminal?: PaymentTerminalAdmin; error?: string }
+        | null
+
+      if (!response.ok || !payload?.terminal) {
+        throw new Error(payload?.error ?? 'Unable to pair SumUp reader.')
+      }
+
+      setPairingCode('')
+      setReaderName('')
+      setTerminals((current) => [payload.terminal!, ...current.filter((entry) => entry.id !== payload.terminal!.id)])
+      setMessage(`Reader paired and assigned to ${payload.terminal.locationName ?? 'this location'}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to pair SumUp reader.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveReader(next: PaymentTerminalAdmin) {
+    setSaving(true)
+    setMessage(null)
+    try {
+      const response = await fetch('/api/admin/payment-terminals', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: next.id,
+          readerName: next.readerName,
+          locationId: next.locationId,
+          isActive: next.isActive,
+        }),
+      })
+
+      const payload = (await response.json().catch(() => null)) as
+        | { terminal?: PaymentTerminalAdmin; error?: string }
+        | null
+
+      if (!response.ok || !payload?.terminal) {
+        throw new Error(payload?.error ?? 'Unable to update reader.')
+      }
+
+      setTerminals((current) => current.map((entry) => (entry.id === payload.terminal!.id ? payload.terminal! : entry)))
+      setMessage(`Reader ${payload.terminal.readerName} updated.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to update reader.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="p-5 sm:p-6">
+      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Payments</p>
+      <h2 className="mt-2 font-display text-3xl font-bold">Card readers</h2>
+      <p className="mt-2 max-w-3xl text-sm text-slate-500">
+        Pair SumUp Solo readers using the one-time Cloud API pairing code, then assign each reader to a reusable location. Services inherit the reader from their location when sending card payments to the terminal.
+      </p>
+      <div className="mt-5 grid gap-4 rounded-2xl border border-slate-200 p-4 lg:grid-cols-[1fr_1fr_1fr_auto]">
+        <label className="grid gap-2 text-sm">
+          <span className="font-semibold text-slate-600">Assign to location</span>
+          <select
+            className="h-11 rounded-xl border border-slate-300 bg-white px-3"
+            value={selectedLocationId}
+            onChange={(event) => setSelectedLocationId(event.target.value)}
+          >
+            {locations.map((location) => (
+              <option key={location.id} value={location.id}>
+                {location.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-2 text-sm">
+          <span className="font-semibold text-slate-600">Reader nickname</span>
+          <Input value={readerName} onChange={(event) => setReaderName(event.target.value)} placeholder="Front counter Solo" />
+        </label>
+        <label className="grid gap-2 text-sm">
+          <span className="font-semibold text-slate-600">Pairing code</span>
+          <Input value={pairingCode} onChange={(event) => setPairingCode(event.target.value.toUpperCase())} placeholder="ABC123" />
+        </label>
+        <div className="flex items-end">
+          <Button
+            disabled={saving || !selectedLocationId || !readerName.trim() || !pairingCode.trim()}
+            onClick={() => {
+              void pairReader()
+            }}
+          >
+            {saving ? 'Pairing...' : 'Pair reader'}
+          </Button>
+        </div>
+      </div>
+      {message ? <p className="mt-3 text-sm font-medium text-slate-600">{message}</p> : null}
+      <div className="mt-5 space-y-3">
+        {loading ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">Loading paired readers...</div>
+        ) : terminals.length ? (
+          terminals.map((terminal) => (
+            <div key={terminal.id} className="grid gap-3 rounded-2xl border border-slate-200 p-4 lg:grid-cols-[1.2fr_1fr_auto]">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold">{terminal.readerName}</p>
+                  <Badge variant={terminal.isActive ? 'green' : 'slate'}>{terminal.isActive ? 'Active' : 'Inactive'}</Badge>
+                  <Badge variant="blue">{terminal.provider}</Badge>
+                </div>
+                <p className="mt-1 text-sm text-slate-500">Reader ID {truncateReaderId(terminal.readerId)} · {terminal.providerStatus}</p>
+                <p className="mt-1 text-sm text-slate-500">Paired {terminal.pairedAt ? formatDateTime(terminal.pairedAt) : 'Unknown'}</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm">
+                  <span className="font-semibold text-slate-600">Nickname</span>
+                  <Input
+                    value={terminal.readerName}
+                    onChange={(event) =>
+                      setTerminals((current) =>
+                        current.map((entry) =>
+                          entry.id === terminal.id ? { ...entry, readerName: event.target.value } : entry,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <label className="grid gap-2 text-sm">
+                  <span className="font-semibold text-slate-600">Assigned location</span>
+                  <select
+                    className="h-11 rounded-xl border border-slate-300 bg-white px-3"
+                    value={terminal.locationId ?? ''}
+                    onChange={(event) =>
+                      setTerminals((current) =>
+                        current.map((entry) =>
+                          entry.id === terminal.id
+                            ? {
+                                ...entry,
+                                locationId: event.target.value || null,
+                                locationName:
+                                  locations.find((location) => location.id === event.target.value)?.name ?? null,
+                              }
+                            : entry,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">Unassigned</option>
+                    {locations.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="flex flex-wrap items-end gap-2 lg:justify-end">
+                <Button
+                  variant={terminal.isActive ? 'outline' : 'secondary'}
+                  onClick={() => {
+                    void saveReader({ ...terminal, isActive: !terminal.isActive })
+                  }}
+                  disabled={saving}
+                >
+                  {terminal.isActive ? 'Disable' : 'Enable'}
+                </Button>
+                <Button
+                  onClick={() => {
+                    void saveReader(terminal)
+                  }}
+                  disabled={saving}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No paired readers yet. Pair a Solo above to store it in Pizza Ops.</div>
+        )}
       </div>
     </Card>
   )
@@ -524,6 +796,7 @@ export function ServiceEditPanel() {
 export function AdminPage() {
   const service = usePizzaOpsStore((state) => state.service)
   const services = usePizzaOpsStore((state) => state.services)
+  const locations = usePizzaOpsStore((state) => state.locations)
   const orders = usePizzaOpsStore((state) => state.orders)
   const payments = usePizzaOpsStore((state) => state.payments)
   const loyverseQueue = usePizzaOpsStore((state) => state.loyverseQueue)
@@ -577,6 +850,8 @@ export function AdminPage() {
           <Button variant="outline" onClick={() => setBrandingForm(branding)}>Reset form</Button>
         </div>
       </Card>
+
+      <CardReadersPanel locations={locations.filter((entry) => entry.active)} />
     </div>
   )
 }

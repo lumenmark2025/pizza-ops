@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { resolveAssignedReaderId } from './_lib/payment-terminals.js'
 import { getSupabaseServerClient } from './_lib/supabase-server.js'
 import { getSumUpConfig, sumupRequest } from './_lib/sumup.js'
 
@@ -9,6 +10,10 @@ type OrderRow = {
   total_pence: number | null
   payment_status: string | null
   payment_method: string | null
+  service_id: string | null
+  services?: {
+    location_id?: string | null
+  } | null
 }
 
 type SumUpReaderCheckout = {
@@ -26,11 +31,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'Missing Supabase server environment variables' })
   }
 
-  const { merchantCode, affiliateKey, terminalId, webhookBaseUrl } = getSumUpConfig()
-  if (!merchantCode || !affiliateKey || !terminalId || !webhookBaseUrl) {
+  const { merchantCode, affiliateKey, terminalId: fallbackTerminalId, webhookBaseUrl } = getSumUpConfig()
+  if (!merchantCode || !affiliateKey || !webhookBaseUrl) {
     return res.status(500).json({
       error:
-        'Missing SumUp terminal configuration. Expected SUMUP_MERCHANT_CODE, SUMUP_AFFILIATE_KEY, SUMUP_SOLO_TERMINAL_ID, and APP_BASE_URL/VERCEL_URL.',
+        'Missing SumUp terminal configuration. Expected SUMUP_MERCHANT_CODE, SUMUP_AFFILIATE_KEY, and APP_BASE_URL/VERCEL_URL.',
     })
   }
 
@@ -43,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { data, error: orderError } = await supabase
       .from('orders')
-      .select('id, reference, customer_name, total_pence, payment_status, payment_method')
+      .select('id, reference, customer_name, total_pence, payment_status, payment_method, service_id, services(location_id)')
       .eq('id', orderId)
       .maybeSingle()
 
@@ -61,8 +66,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(409).json({ error: 'Order is already paid.' })
     }
 
+    const locationId =
+      order.services && typeof order.services === 'object' && 'location_id' in order.services
+        ? order.services.location_id ?? null
+        : null
+
+    const assignedTerminalId =
+      (await resolveAssignedReaderId(supabase, locationId, 'sumup')) ?? fallbackTerminalId
+
+    if (!assignedTerminalId) {
+      return res.status(409).json({
+        error: 'No active SumUp reader is assigned to this location. Pair a reader in Admin first.',
+      })
+    }
+
     const checkout = await sumupRequest<SumUpReaderCheckout>(
-      `/v0.1/merchants/${merchantCode}/readers/${terminalId}/checkout`,
+      `/v0.1/merchants/${merchantCode}/readers/${assignedTerminalId}/checkout`,
       {
         method: 'POST',
         body: JSON.stringify({

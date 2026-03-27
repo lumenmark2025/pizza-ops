@@ -269,6 +269,29 @@ create table if not exists payments (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists payment_terminals (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null,
+  reader_id text not null,
+  reader_name text not null,
+  location_id uuid references locations(id) on delete set null,
+  is_active boolean not null default true,
+  provider_status text not null default 'paired',
+  paired_at timestamptz not null default now(),
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_payment_terminals_reader_id_unique
+  on payment_terminals (reader_id);
+
+create index if not exists idx_payment_terminals_location_active
+  on payment_terminals (location_id, is_active);
+
+create index if not exists idx_payment_terminals_provider
+  on payment_terminals (provider);
+
 create table if not exists activity_log (
   id text primary key,
   type text not null,
