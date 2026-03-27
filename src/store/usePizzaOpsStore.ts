@@ -1057,6 +1057,7 @@ export const usePizzaOpsStore = create<StoreState>()(
           }
 
           const serviceId = get().service.id
+          console.info('[pizza-ops] startRealtime invoked', { serviceId })
           if (stopRealtimeSubscription && activeRealtimeServiceId === serviceId) {
             console.info('[pizza-ops] startRealtime skipped duplicate', serviceId)
             return stopRealtimeSubscription

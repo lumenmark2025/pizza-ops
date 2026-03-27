@@ -80,6 +80,11 @@ export function subscribeToRemoteSnapshot(
       },
     )
     .subscribe((status) => {
+      console.info('[pizza-ops] service ops channel status', {
+        serviceId,
+        channel: `service-ops-${serviceId}`,
+        status,
+      })
       onStatus?.(status)
     })
 
