@@ -25,7 +25,6 @@ import {
   persistLocationToSupabase,
   resolveLocationReference,
   loadLocationsFromSupabase,
-  loadOrderByIdFromSupabase,
   loadOrdersForService,
   loadServiceInventoryFromSupabase,
   loadServicesFromSupabase,
@@ -374,12 +373,6 @@ function rebuildPaymentsFromOrders(orders: Order[], existingPayments: PaymentRec
     .sort(
       (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
     )
-}
-
-function sortOrdersNewestFirst(orders: Order[]) {
-  return [...orders].sort(
-    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
-  )
 }
 
 function createDemoState(): ServiceSnapshot {
@@ -1109,59 +1102,12 @@ export const usePizzaOpsStore = create<StoreState>()(
           const stopOps = subscribeToServiceOpsTables(
             serviceId,
             (event) => {
-              if (event.table === 'orders' && event.orderId) {
-                console.info('[pizza-ops] realtime order patch start', {
-                  serviceId,
-                  eventType: event.eventType,
-                  orderId: event.orderId,
-                })
-                if (event.eventType === 'DELETE') {
-                  set((current) => {
-                    const nextOrders = current.orders.filter((order) => order.id !== event.orderId)
-                    return {
-                      orders: nextOrders,
-                      payments: rebuildPaymentsFromOrders(nextOrders, current.payments),
-                      lastRemoteSyncAt: toIsoNow(),
-                    }
-                  })
-                  return
-                }
-
-                void loadOrderByIdFromSupabase(event.orderId)
-                  .then((order) => {
-                    if (!order) {
-                      return
-                    }
-
-                    set((current) => {
-                      const nextOrders = sortOrdersNewestFirst([
-                        order,
-                        ...current.orders.filter((entry) => entry.id !== order.id),
-                      ])
-                      console.info('[pizza-ops] realtime order patch applied', {
-                        serviceId,
-                        eventType: event.eventType,
-                        orderId: order.id,
-                        orders: nextOrders.length,
-                      })
-                      return {
-                        orders: nextOrders,
-                        payments: rebuildPaymentsFromOrders(nextOrders, current.payments),
-                        lastRemoteSyncAt: toIsoNow(),
-                        masterDataLoadError: null,
-                      }
-                    })
-                  })
-                  .catch((error) => {
-                    console.error('[pizza-ops] realtime order patch failed', {
-                      serviceId,
-                      eventType: event.eventType,
-                      orderId: event.orderId,
-                      message: error instanceof Error ? error.message : 'Unknown error',
-                    })
-                  })
-                return
-              }
+              console.info('[pizza-ops] realtime ops handler', {
+                serviceId,
+                table: event.table,
+                eventType: event.eventType,
+                orderId: 'orderId' in event ? event.orderId ?? null : null,
+              })
 
               if (opsTableRefreshTimer) {
                 clearTimeout(opsTableRefreshTimer)

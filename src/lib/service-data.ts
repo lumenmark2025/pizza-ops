@@ -548,19 +548,3 @@ export async function loadOrdersForService(serviceId: string) {
 
   return ((data ?? []) as OrderRow[]).map(mapOrderRow)
 }
-
-export async function loadOrderByIdFromSupabase(orderId: string) {
-  ensureSupabase('Order load')
-
-  const { data, error } = await supabase!
-    .from('orders')
-    .select('id, service_id, order_number, source, customer_name, customer_mobile, customer_email, auth_user_id, status, promised_collection_time, subtotal_pence, discount_pence, total_pence, applied_discount_code_id, applied_discount_summary, pricing_summary, payment_status, payment_method, payment_reference, receipt_email_status, receipt_sent_at, receipt_last_error, loyverse_sync_status, notes, pager_number, taken_at, prepping_at, in_oven_at, ready_at, completed_at, created_at, order_items(id, menu_item_id, item_name, quantity, original_unit_price_pence, item_discount_pence, final_unit_price_pence, progress_count, notes, order_item_modifiers(order_item_id, modifier_name, price_delta_pence, quantity))')
-    .eq('id', orderId)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(`Order load failed. ${error.message}`)
-  }
-
-  return data ? mapOrderRow(data as OrderRow) : null
-}
