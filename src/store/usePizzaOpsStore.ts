@@ -179,7 +179,6 @@ let hydrateRemoteServiceId: string | null = null
 let activeRealtimeServiceId: string | null = null
 let snapshotPersistTimer: ReturnType<typeof setTimeout> | null = null
 let stopOpsTableSubscription: null | (() => void) = null
-let opsTableRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let stopMasterDataSubscription: null | (() => void) = null
 let masterDataRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -939,6 +938,10 @@ export const usePizzaOpsStore = create<StoreState>()(
             orders: orders.length,
             inventory: inventory.length,
           })
+          console.info('[pizza-ops] refreshOperationalTablesForService state.orders after write', {
+            serviceId,
+            orders: get().orders.length,
+          })
         } catch (error) {
           set({
             masterDataLoadError:
@@ -1108,14 +1111,7 @@ export const usePizzaOpsStore = create<StoreState>()(
                 eventType: event.eventType,
                 orderId: 'orderId' in event ? event.orderId ?? null : null,
               })
-
-              if (opsTableRefreshTimer) {
-                clearTimeout(opsTableRefreshTimer)
-              }
-
-              opsTableRefreshTimer = setTimeout(() => {
-                void refreshOperationalTablesForService(serviceId)
-              }, 60)
+              void refreshOperationalTablesForService(serviceId)
             },
             (status) => {
               set({
@@ -1156,10 +1152,6 @@ export const usePizzaOpsStore = create<StoreState>()(
             stop?.()
             stopOps?.()
             stopMaster?.()
-            if (opsTableRefreshTimer) {
-              clearTimeout(opsTableRefreshTimer)
-              opsTableRefreshTimer = null
-            }
             if (masterDataRefreshTimer) {
               clearTimeout(masterDataRefreshTimer)
               masterDataRefreshTimer = null
