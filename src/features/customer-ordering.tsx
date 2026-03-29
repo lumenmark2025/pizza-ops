@@ -606,6 +606,27 @@ function PizzaEditor({
     setLocalModifierIds(selectedModifierIds)
   }, [quantity, selectedModifierIds, menuItemId, basketItemId])
 
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') {
+      return
+    }
+
+    const { body, documentElement } = document
+    const previousBodyOverflow = body.style.overflow
+    const previousBodyTouchAction = body.style.touchAction
+    const previousHtmlOverflow = documentElement.style.overflow
+
+    body.style.overflow = 'hidden'
+    body.style.touchAction = 'none'
+    documentElement.style.overflow = 'hidden'
+
+    return () => {
+      body.style.overflow = previousBodyOverflow
+      body.style.touchAction = previousBodyTouchAction
+      documentElement.style.overflow = previousHtmlOverflow
+    }
+  }, [open])
+
   if (!open || !menuItem) {
     return null
   }
@@ -615,8 +636,9 @@ function PizzaEditor({
     .reduce((sum, modifier) => sum + modifier.priceDelta, 0)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
-      <div className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-[28px] bg-white p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] sm:max-h-[88vh] sm:p-6">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/45">
+      <div className="flex h-full items-end justify-center p-3 sm:items-center">
+      <div className="flex max-h-[92vh] min-h-0 w-full max-w-xl flex-col overflow-hidden rounded-[28px] bg-white p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] sm:max-h-[88vh] sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Add to order</p>
@@ -628,7 +650,7 @@ function PizzaEditor({
           </div>
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
           <MenuItemMedia imageUrl={menuItem.imageUrl} name={menuItem.name} className="mt-5 h-40" />
           <div className="mt-5 rounded-2xl bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Base price</p>
@@ -694,6 +716,7 @@ function PizzaEditor({
             {basketItemId ? 'Save pizza' : 'Add to order'}
           </Button>
         </div>
+      </div>
       </div>
     </div>
   )
