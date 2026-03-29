@@ -1058,30 +1058,76 @@ export function CustomerBoardPage() {
       ) : null}
       <div className="grid gap-4 lg:grid-cols-4">
         {BOARD_STATUSES.map((status) => (
-          <Card key={status} className={cn('min-h-[24rem] p-4 sm:p-5', statusStyles[status].card)}>
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-2xl font-bold">{titleCase(status)}</h2>
-              <Badge variant={statusStyles[status].badge}>{grouped[status].length}</Badge>
-            </div>
-            <div className="mt-4 space-y-3">
-              {grouped[status].map((order) => (
-                <div key={order.id} className="rounded-xl bg-white/90 p-4 shadow-sm">
-                  <p className="text-xl font-semibold">{getCustomerName(order, customers)}</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {order.reference} / {formatTime(order.promisedTime)}
+          <Card
+            key={status}
+            className={cn(
+              'min-h-[24rem] overflow-hidden rounded-lg border p-0 shadow-none',
+              status === 'taken' && 'border-sky-400/40 bg-sky-500/10',
+              status === 'prepping' && 'border-amber-400/40 bg-amber-500/10',
+              status === 'in_oven' && 'border-orange-400/40 bg-orange-500/10',
+              status === 'ready' && 'border-emerald-400/40 bg-emerald-500/10',
+            )}
+          >
+            <div
+              className={cn(
+                'h-1.5',
+                status === 'taken' && 'bg-sky-500',
+                status === 'prepping' && 'bg-amber-500',
+                status === 'in_oven' && 'bg-orange-500',
+                status === 'ready' && 'bg-emerald-500',
+              )}
+            />
+            <div className="p-4 sm:p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-300">
+                    Collection stage
                   </p>
-                  {order.pagerNumber ? (
-                    <p className="mt-1 text-xs font-semibold text-slate-500">
-                      Pager {order.pagerNumber}
-                    </p>
-                  ) : null}
+                  <h2 className="mt-1 font-display text-2xl font-bold text-white">{titleCase(status)}</h2>
                 </div>
-              ))}
-              {!grouped[status].length ? (
-                <div className="rounded-xl border border-white/60 bg-white/65 p-4 text-sm text-slate-500">
-                  No orders in this stage.
-                </div>
-              ) : null}
+                <Badge variant={statusStyles[status].badge}>{grouped[status].length}</Badge>
+              </div>
+              <div className="mt-4 space-y-3">
+                {grouped[status].map((order) => (
+                  <div key={order.id} className="overflow-hidden rounded-lg border border-slate-300 bg-white text-slate-950 shadow-none">
+                    <div
+                      className={cn(
+                        'h-1.5',
+                        status === 'taken' && 'bg-sky-500',
+                        status === 'prepping' && 'bg-amber-500',
+                        status === 'in_oven' && 'bg-orange-500',
+                        status === 'ready' && 'bg-emerald-500',
+                      )}
+                    />
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            {order.reference}
+                          </p>
+                          <p className="mt-1 font-display text-2xl font-bold leading-tight text-slate-950">
+                            {getCustomerName(order, customers)}
+                          </p>
+                        </div>
+                        <Badge variant={statusStyles[status].badge}>{titleCase(status)}</Badge>
+                      </div>
+                      <p className="mt-3 text-base font-medium text-slate-700">
+                        Collect at {formatTime(order.promisedTime)}
+                      </p>
+                      {order.pagerNumber ? (
+                        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Pager {order.pagerNumber}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+                {!grouped[status].length ? (
+                  <div className="rounded-lg border border-white/10 bg-black/15 p-4 text-sm text-slate-200">
+                    No orders in this stage.
+                  </div>
+                ) : null}
+              </div>
             </div>
           </Card>
         ))}
