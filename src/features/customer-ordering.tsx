@@ -637,8 +637,8 @@ function PizzaEditor({
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/45">
-      <div className="flex h-full items-end justify-center p-3 sm:items-center">
-      <div className="flex max-h-[92vh] min-h-0 w-full max-w-xl flex-col overflow-hidden rounded-[28px] bg-white p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] sm:max-h-[88vh] sm:p-6">
+      <div className="flex h-full items-end justify-center overflow-hidden p-3 sm:items-center">
+      <div className="flex h-[min(92vh,48rem)] min-h-0 w-full max-w-xl flex-col overflow-hidden rounded-[28px] bg-white p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] sm:h-[min(88vh,48rem)] sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Add to order</p>
@@ -650,16 +650,17 @@ function PizzaEditor({
           </div>
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <MenuItemMedia imageUrl={menuItem.imageUrl} name={menuItem.name} className="mt-5 h-40" />
           <div className="mt-5 rounded-2xl bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Base price</p>
             <p className="mt-1 text-2xl font-bold">{currency(menuItem.price)}</p>
           </div>
           {eligibleModifiers.length ? (
-            <div className="mt-5">
+            <div className="mt-5 flex min-h-0 flex-1 flex-col">
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Modifiers</p>
-              <div className="mt-3 grid gap-2">
+              <div className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+                <div className="grid gap-2">
                 {eligibleModifiers.map((modifier) => {
                   const active = localModifierIds.includes(modifier.id)
                   return (
@@ -683,6 +684,7 @@ function PizzaEditor({
                     </button>
                   )
                 })}
+                </div>
               </div>
             </div>
           ) : null}
