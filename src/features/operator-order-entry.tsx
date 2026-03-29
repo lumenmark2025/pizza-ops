@@ -69,8 +69,10 @@ export function OrderEntryPage() {
   const service = usePizzaOpsStore((state) => state.service)
   const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
+  const collectOrderPayment = usePizzaOpsStore((state) => state.collectOrderPayment)
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
   const updatePaymentStatus = usePizzaOpsStore((state) => state.updatePaymentStatus)
+  const payments = usePizzaOpsStore((state) => state.payments)
   const getAvailableTimes = usePizzaOpsStore((state) => state.getAvailableTimes)
   const [customerName, setCustomerName] = useState('')
   const [mobile, setMobile] = useState('')
@@ -87,6 +89,8 @@ export function OrderEntryPage() {
   const [discountMessage, setDiscountMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [orderDiscountDraft, setOrderDiscountDraft] = useState<AppliedDiscountSummary | null>(null)
+  const [draftOrderId, setDraftOrderId] = useState<string | null>(null)
+  const [pendingTerminalOrderId, setPendingTerminalOrderId] = useState<string | null>(null)
 
   const availability = useMemo(
     () => getMenuAvailability(inventory, recipes, menuItems, orders),
@@ -148,6 +152,13 @@ export function OrderEntryPage() {
     [basket, menuItems, resolvedOrderDiscount],
   )
   const total = pricingSummary.finalTotalAmount
+  const recoverableOrders = useMemo(
+    () =>
+      [...orders]
+        .filter((order) => order.paymentStatus !== 'paid')
+        .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
+    [orders],
+  )
 
   useEffect(() => {
     if (!selectedTime && availableSlots[0]) {
@@ -341,6 +352,140 @@ export function OrderEntryPage() {
     setDiscountMessage(`Code ${code.code} applied.`)
   }
 
+  function resetDraft() {
+    setBasket([])
+    setCustomerName('')
+    setMobile('')
+    setEmail('')
+    setNotes('')
+    setPagerNumber('')
+    setOrderDiscountDraft(null)
+    setDiscountCodeInput('')
+    setDiscountMessage(null)
+    setDraftOrderId(null)
+    setPendingTerminalOrderId(null)
+  }
+
+  function cloneOrderItems(items: OrderItem[]) {
+    return items.map((item, index) => ({
+      ...item,
+      id: `${item.menuItemId}_${Date.now()}_${index}`,
+      modifiers: item.modifiers?.map((modifier) => ({ ...modifier })),
+    }))
+  }
+
+  function resumeOrder(orderId: string) {
+    const order = orders.find((entry) => entry.id === orderId)
+    if (!order) {
+      setMessage('Order not found.')
+      return
+    }
+
+    setDraftOrderId(order.id)
+    setPendingTerminalOrderId(order.paymentStatus === 'pending' && order.paymentMethod === 'sumup_terminal' ? order.id : null)
+    setCustomerName(order.customerName ?? '')
+    setMobile(order.customerMobile ?? '')
+    setEmail(order.customerEmail ?? '')
+    setSource(order.source)
+    setPaymentMethod(
+      order.paymentMethod === 'sumup_terminal'
+        ? 'tap_to_pay'
+        : order.paymentMethod === 'cash'
+          ? 'cash'
+          : order.paymentMethod === 'sumup_online'
+            ? 'sumup_online'
+            : 'preorder',
+    )
+    setNotes(order.notes ?? '')
+    setPagerNumber(order.pagerNumber ? String(order.pagerNumber) : '')
+    setSelectedTime(order.promisedTime)
+    setBasket(cloneOrderItems(order.items))
+    setOrderDiscountDraft(order.appliedDiscountSummary ?? null)
+    setDiscountCodeInput('')
+    setDiscountMessage(null)
+    setMessage(`${order.reference} loaded. Use Card or Cash below to capture payment for the saved order.`)
+  }
+
+  async function sendExistingOrderToTerminal(orderId: string) {
+    const existingPayment = payments.find((entry) => entry.orderId === orderId)
+
+    try {
+      if (existingPayment) {
+        await updatePaymentCheckout(
+          existingPayment.id,
+          existingPayment.providerReference
+            ? { providerReference: existingPayment.providerReference, status: 'pending' }
+            : { status: 'pending' },
+        )
+      } else {
+        const result = await collectOrderPayment(orderId, {
+          paymentMethod: 'sumup_terminal',
+          actor: 'manager',
+        })
+
+        if (!result.ok) {
+          setMessage(result.error)
+          return
+        }
+      }
+
+      const checkout = await createTerminalSumUpCheckout({ orderId })
+      const nextPayment = usePizzaOpsStore.getState().payments.find((entry) => entry.orderId === orderId)
+      if (nextPayment) {
+        await updatePaymentCheckout(
+          nextPayment.id,
+          checkout.clientTransactionId
+            ? {
+                providerReference: checkout.clientTransactionId,
+                status: 'pending',
+              }
+            : {
+                status: 'pending',
+              },
+        )
+      }
+
+      setDraftOrderId(orderId)
+      setPendingTerminalOrderId(orderId)
+      setMessage('Waiting for payment on terminal...')
+
+      void pollTerminalSumUpCheckoutStatus({
+        orderId,
+        clientTransactionId: checkout.clientTransactionId,
+        onUpdate: (status) => {
+          if (!status.finalized) {
+            return
+          }
+
+          setPendingTerminalOrderId(null)
+          const currentPayment = usePizzaOpsStore.getState().payments.find((entry) => entry.orderId === orderId)
+          if (currentPayment) {
+            updatePaymentStatus(currentPayment.id, status.paymentStatus)
+          }
+
+          if (status.paymentStatus === 'paid') {
+            if (draftOrderId === orderId) {
+              resetDraft()
+            }
+            setMessage('Terminal payment confirmed.')
+            return
+          }
+
+          setMessage('Terminal payment was cancelled or failed. The saved order remains unpaid below and can be resumed, retried on card, or taken as cash.')
+        },
+      }).catch((error) => {
+        console.error('terminal-payment polling error', error)
+        setPendingTerminalOrderId(null)
+        setMessage('Terminal payment is still pending. The saved order remains recoverable below if you need to retry or take cash.')
+      })
+    } catch (error) {
+      setPendingTerminalOrderId(null)
+      setMessage(
+        `${error instanceof Error ? error.message : 'Unable to start terminal payment.'} The saved order remains unpaid below and can be retried or switched to cash.`,
+      )
+    }
+  }
+
   async function submitOrder() {
     if (!customerName.trim()) {
       setMessage('Customer name is required.')
@@ -428,15 +573,8 @@ export function OrderEntryPage() {
               },
         )
 
-        setBasket([])
-        setCustomerName('')
-        setMobile('')
-        setEmail('')
-        setNotes('')
-        setPagerNumber('')
-        setOrderDiscountDraft(null)
-        setDiscountCodeInput('')
-        setDiscountMessage(null)
+        setDraftOrderId(result.orderId)
+        setPendingTerminalOrderId(result.orderId)
         setMessage('Waiting for payment on terminal...')
         setIsSubmitting(false)
 
@@ -448,36 +586,33 @@ export function OrderEntryPage() {
               return
             }
 
+            setPendingTerminalOrderId(null)
             updatePaymentStatus(paymentId, status.paymentStatus)
-            setMessage(
-              status.paymentStatus === 'paid'
-                ? 'Terminal payment confirmed.'
-                : 'Terminal payment was cancelled or failed. The order remains unpaid and can be retried or switched to cash from Admin Ops.',
-            )
+            if (status.paymentStatus === 'paid') {
+              resetDraft()
+              setMessage('Terminal payment confirmed.')
+              return
+            }
+
+            setMessage('Terminal payment was cancelled or failed. The saved order remains unpaid below and can be resumed, retried on card, or taken as cash.')
           },
         }).catch((error) => {
           console.error('terminal-payment polling error', error)
-          setMessage('Terminal payment is still pending. You can retry or switch to cash from Admin Ops if needed.')
+          setPendingTerminalOrderId(null)
+          setMessage('Terminal payment is still pending. The saved order remains recoverable below if you need to retry or take cash.')
         })
         return
       } catch (error) {
+        setPendingTerminalOrderId(null)
         setMessage(
-          `${error instanceof Error ? error.message : 'Unable to start terminal payment.'} The order is saved and can be retried or switched to cash from Admin Ops.`,
+          `${error instanceof Error ? error.message : 'Unable to start terminal payment.'} The saved order remains unpaid below and can be retried or switched to cash.`,
         )
         setIsSubmitting(false)
         return
       }
     }
 
-    setBasket([])
-    setCustomerName('')
-    setMobile('')
-    setEmail('')
-    setNotes('')
-    setPagerNumber('')
-    setOrderDiscountDraft(null)
-    setDiscountCodeInput('')
-    setDiscountMessage(null)
+    resetDraft()
     setMessage(`Order created for ${formatTime(selectedTime)}.`)
     setIsSubmitting(false)
   }
@@ -702,10 +837,67 @@ export function OrderEntryPage() {
               {basket.length ? 'No collection slots available right now.' : 'Add an item to load valid collection times.'}
             </p>
           ) : null}
-          <Button className="mt-4 w-full" size="lg" onClick={() => void submitOrder()} disabled={isSubmitting}>
+          <Button className="mt-4 w-full" size="lg" onClick={() => void submitOrder()} disabled={isSubmitting || Boolean(pendingTerminalOrderId)}>
             {isSubmitting ? 'Starting checkout...' : paymentMethod === 'sumup_online' ? 'Pay with SumUp' : paymentMethod === 'tap_to_pay' ? 'Send to card terminal' : paymentMethod === 'preorder' ? 'Create preorder' : 'Place order'}
           </Button>
           {message ? <p className="mt-3 text-sm text-orange-200">{message}</p> : null}
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-display text-xl font-bold">Recent / unpaid orders</h3>
+              <p className="mt-1 text-sm text-slate-500">Saved orders for this service that still need payment or recovery.</p>
+            </div>
+            <Badge variant="slate">{recoverableOrders.length}</Badge>
+          </div>
+          <div className="mt-4 space-y-3">
+            {recoverableOrders.length ? recoverableOrders.map((order) => (
+              <div key={order.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{order.reference} · {order.customerName ?? 'Walk-up'}</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {formatTime(order.promisedTime)} · {titleCase(order.source)} · {titleCase(order.paymentStatus)} · {currency(order.totalAmount)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {order.items.map((item) => `${item.quantity}x ${menuItems.find((entry) => entry.id === item.menuItemId)?.name ?? item.menuItemId}`).join(', ')}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => resumeOrder(order.id)}>Resume</Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void sendExistingOrderToTerminal(order.id)}
+                      disabled={pendingTerminalOrderId === order.id}
+                    >
+                      {pendingTerminalOrderId === order.id ? 'Waiting...' : 'Card'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        void collectOrderPayment(order.id, { paymentMethod: 'cash', actor: 'manager' }).then((result) => {
+                          if (!result.ok) {
+                            setMessage(result.error)
+                            return
+                          }
+                          if (draftOrderId === order.id) {
+                            resetDraft()
+                          }
+                          setMessage(`${order.reference} marked paid with cash.`)
+                        })
+                      }}
+                    >
+                      Cash
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )) : (
+              <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">No unpaid orders for this service.</p>
+            )}
+          </div>
         </div>
       </Card>
     </div>
