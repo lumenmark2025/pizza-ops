@@ -3,6 +3,7 @@ export type OrderSource =
   | 'walkup'
   | 'web'
   | 'phone'
+  | 'text_message'
   | 'whatsapp'
   | 'messenger'
   | 'manual'

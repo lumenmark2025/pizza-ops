@@ -14,7 +14,7 @@ import { getOrderPaymentLabel, isDeferredPreorder } from '../lib/order-flow'
 import { isUuidValue } from '../lib/service-data'
 import { generateServiceSlots, getAvailableSlots, getInventorySummary } from '../lib/slot-engine'
 import { formatDateTime, formatTime } from '../lib/time'
-import { titleCase } from '../lib/utils'
+import { currency, titleCase } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 
 function StatPanel({ icon: Icon, title, value, detail }: { icon: ComponentType<{ className?: string }>; title: string; value: string; detail: string }) {
@@ -789,6 +789,15 @@ export function AdminPage() {
   const updateBranding = usePizzaOpsStore((state) => state.updateBranding)
   const syncIssues = loyverseQueue.filter((entry) => entry.status === 'failed').length
   const [brandingForm, setBrandingForm] = useState(branding)
+  const paymentLog = useMemo(
+    () =>
+      [...payments].sort(
+        (left, right) =>
+          new Date(right.updatedAt ?? right.createdAt).getTime() -
+          new Date(left.updatedAt ?? left.createdAt).getTime(),
+      ),
+    [payments],
+  )
 
   useEffect(() => {
     setBrandingForm(branding)
@@ -833,6 +842,43 @@ export function AdminPage() {
         <div className="mt-5 flex flex-wrap gap-3">
           <Button onClick={() => updateBranding(brandingForm, 'manager')}>Save public brand</Button>
           <Button variant="outline" onClick={() => setBrandingForm(branding)}>Reset form</Button>
+        </div>
+      </Card>
+
+      <Card className="p-5 sm:p-6">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Checking And Reconciliation</p>
+        <h2 className="mt-2 font-display text-3xl font-bold">Payment transaction log</h2>
+        <p className="mt-2 max-w-3xl text-sm text-slate-500">Recent payment attempts for the active service, including references and final status for quick checking during service.</p>
+        <div className="mt-5 space-y-3">
+          {paymentLog.length ? paymentLog.map((payment) => {
+            const order = orders.find((entry) => entry.id === payment.orderId)
+            return (
+              <div key={payment.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">
+                      {order?.reference ?? payment.orderId} · {order?.customerName ?? 'Walk-up'}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {service.name} · {getOrderPaymentLabel({
+                        paymentMethod: payment.method,
+                        paymentStatus: payment.status,
+                      })} · {titleCase(payment.status)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {payment.providerReference || 'No provider reference'} · {currency(payment.amount)}
+                    </p>
+                  </div>
+                  <div className="text-right text-sm text-slate-500">
+                    <p>{formatDateTime(payment.updatedAt ?? payment.createdAt)}</p>
+                    <p className="mt-1">{payment.id}</p>
+                  </div>
+                </div>
+              </div>
+            )
+          }) : (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No payment transactions recorded for the active service yet.</div>
+          )}
         </div>
       </Card>
 

@@ -38,7 +38,7 @@ export function getOrderPaymentLabel(order: Pick<Order, 'paymentMethod' | 'payme
   }
 
   if (order.paymentMethod === 'sumup_terminal') {
-    return 'Card terminal'
+    return 'SumUp Solo'
   }
 
   if (order.paymentMethod === 'cash') {
@@ -46,7 +46,7 @@ export function getOrderPaymentLabel(order: Pick<Order, 'paymentMethod' | 'payme
   }
 
   if (order.paymentMethod === 'manual') {
-    return 'Tap to Pay'
+    return 'iPhone'
   }
 
   return 'Unpaid'

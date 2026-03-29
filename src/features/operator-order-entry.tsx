@@ -29,15 +29,15 @@ import { cn, currency, isValidEmail, normalizeEmail, titleCase } from '../lib/ut
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { AppliedDiscountSummary, DiscountCode, Modifier, OrderItem, OrderSource, PaymentMethod } from '../types/domain'
 
-const orderSources: OrderSource[] = ['walkup', 'web', 'phone', 'whatsapp', 'messenger', 'manual']
-const paymentMethods: AdminOrderEntryPaymentOption[] = ['sumup_online', 'tap_to_pay', 'cash', 'preorder']
+const orderSources: OrderSource[] = ['walkup', 'web', 'phone', 'text_message', 'whatsapp', 'messenger', 'manual']
+const paymentMethods: AdminOrderEntryPaymentOption[] = ['tap_to_pay', 'cash', 'preorder', 'manual']
 const paymentMethodLabels: Record<AdminOrderEntryPaymentOption, string> = {
   sumup_online: 'SumUp',
-  sumup_terminal: 'Card terminal',
-  tap_to_pay: 'Card',
+  sumup_terminal: 'SumUp Solo',
+  tap_to_pay: 'SumUp Solo',
   cash: 'Cash',
   preorder: 'Preorder',
-  manual: 'Tap to Pay',
+  manual: 'iPhone',
 }
 
 function ServiceBanner() {

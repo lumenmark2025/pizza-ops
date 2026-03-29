@@ -28,7 +28,7 @@ import {
 } from '../lib/menu'
 import { getOrderItemsTotal } from '../lib/order-calculations'
 import { getMenuAvailability } from '../lib/slot-engine'
-import { formatTime } from '../lib/time'
+import { addMinutes, formatTime } from '../lib/time'
 import { cn, currency, isValidEmail } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { AppliedDiscountSummary, DiscountCode, MenuItem, OrderItem, PaymentStatus, PricingSummary } from '../types/domain'
@@ -1176,6 +1176,8 @@ export function CustomerCheckoutPage() {
 
   const location = locations.find((entry) => entry.id === service.locationId)
   const availableSlots = useMemo(() => getAvailableTimes(draft.basket), [draft.basket, getAvailableTimes])
+  const formatCustomerSlotLabel = (promisedTime: string) =>
+    `between ${formatTime(addMinutes(promisedTime, -service.slotSizeMinutes))} and ${formatTime(promisedTime)}`
   const total = pricingSummary.finalTotalAmount
 
   useEffect(() => {
@@ -1406,8 +1408,8 @@ export function CustomerCheckoutPage() {
                   )}
                   onClick={() => patchDraft({ selectedTime: slot.promisedTime })}
                 >
-                  <p className="font-semibold">{formatTime(slot.promisedTime)}</p>
-                  <p className="text-xs text-slate-500">Collection slot</p>
+                  <p className="font-semibold">{formatCustomerSlotLabel(slot.promisedTime)}</p>
+                  <p className="text-xs text-slate-500">Collection window</p>
                 </button>
               ))}
               </div>
