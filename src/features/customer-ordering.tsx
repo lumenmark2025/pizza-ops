@@ -650,17 +650,16 @@ function PizzaEditor({
           </div>
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <MenuItemMedia imageUrl={menuItem.imageUrl} name={menuItem.name} className="mt-5 h-40" />
-          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pr-1">
+          <MenuItemMedia imageUrl={menuItem.imageUrl} name={menuItem.name} className="mt-5 h-40 shrink-0" />
+          <div className="mt-5 shrink-0 rounded-2xl bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Base price</p>
             <p className="mt-1 text-2xl font-bold">{currency(menuItem.price)}</p>
           </div>
           {eligibleModifiers.length ? (
-            <div className="mt-5 flex min-h-0 flex-1 flex-col">
+            <div className="mt-5">
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Modifiers</p>
-              <div className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
-                <div className="grid gap-2">
+              <div className="mt-3 grid gap-2 pb-1">
                 {eligibleModifiers.map((modifier) => {
                   const active = localModifierIds.includes(modifier.id)
                   return (
@@ -684,12 +683,11 @@ function PizzaEditor({
                     </button>
                   )
                 })}
-                </div>
               </div>
             </div>
           ) : null}
           {!basketItemId ? (
-            <div className="mt-5">
+            <div className="mt-5 shrink-0">
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Quantity</p>
               <div className="mt-3 flex items-center gap-3">
                 <Button variant="outline" onClick={() => setLocalQuantity((current) => Math.max(1, current - 1))}>-</Button>
