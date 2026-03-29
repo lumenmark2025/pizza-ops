@@ -864,10 +864,6 @@ export function CustomerServicePage() {
     return <Navigate to="/order" replace />
   }
 
-  if (!remoteReady || loadingInventory || service.id !== serviceId) {
-    return <CustomerShell eyebrow="Choose Service" title="Loading service"><Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">Refreshing live menu and availability...</Card></CustomerShell>
-  }
-
   const location = locations.find((entry) => entry.id === service.locationId)
   const availability = getMenuAvailability(inventory, recipes, menuItems, orders)
   const visibleMenuItems = useMemo(
@@ -885,6 +881,10 @@ export function CustomerServicePage() {
     [visibleMenuItems],
   )
   const basketTotal = pricingSummary.finalTotalAmount
+
+  if (!remoteReady || loadingInventory || service.id !== serviceId) {
+    return <CustomerShell eyebrow="Choose Service" title="Loading service"><Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">Refreshing live menu and availability...</Card></CustomerShell>
+  }
 
   function openNewPizza(menuItemId: string) {
     setEditor({
