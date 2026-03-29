@@ -616,7 +616,7 @@ function PizzaEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
-      <div className="w-full max-w-xl rounded-[28px] bg-white p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] sm:p-6">
+      <div className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-[28px] bg-white p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] sm:max-h-[88vh] sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Add to order</p>
@@ -628,52 +628,54 @@ function PizzaEditor({
           </div>
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
-        <MenuItemMedia imageUrl={menuItem.imageUrl} name={menuItem.name} className="mt-5 h-40" />
-        <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-          <p className="text-sm text-slate-500">Base price</p>
-          <p className="mt-1 text-2xl font-bold">{currency(menuItem.price)}</p>
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <MenuItemMedia imageUrl={menuItem.imageUrl} name={menuItem.name} className="mt-5 h-40" />
+          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Base price</p>
+            <p className="mt-1 text-2xl font-bold">{currency(menuItem.price)}</p>
+          </div>
+          {eligibleModifiers.length ? (
+            <div className="mt-5">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Modifiers</p>
+              <div className="mt-3 grid gap-2">
+                {eligibleModifiers.map((modifier) => {
+                  const active = localModifierIds.includes(modifier.id)
+                  return (
+                    <button
+                      key={modifier.id}
+                      className={cn(
+                        'flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition',
+                        active ? 'border-orange-400 bg-orange-50' : 'border-slate-200 bg-white hover:bg-slate-50',
+                      )}
+                      onClick={() =>
+                        setLocalModifierIds((current) =>
+                          active ? current.filter((entry) => entry !== modifier.id) : [...current, modifier.id],
+                        )
+                      }
+                    >
+                      <span className="font-semibold">{modifier.name}</span>
+                      <span className="text-sm text-slate-500">
+                        {modifier.priceDelta >= 0 ? '+' : ''}
+                        {currency(modifier.priceDelta)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+          {!basketItemId ? (
+            <div className="mt-5">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Quantity</p>
+              <div className="mt-3 flex items-center gap-3">
+                <Button variant="outline" onClick={() => setLocalQuantity((current) => Math.max(1, current - 1))}>-</Button>
+                <div className="rounded-2xl border border-slate-200 px-5 py-3 text-lg font-bold">{localQuantity}</div>
+                <Button variant="outline" onClick={() => setLocalQuantity((current) => current + 1)}>+</Button>
+              </div>
+            </div>
+          ) : null}
         </div>
-        {eligibleModifiers.length ? (
-          <div className="mt-5">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Modifiers</p>
-            <div className="mt-3 grid gap-2">
-              {eligibleModifiers.map((modifier) => {
-                const active = localModifierIds.includes(modifier.id)
-                return (
-                  <button
-                    key={modifier.id}
-                    className={cn(
-                      'flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition',
-                      active ? 'border-orange-400 bg-orange-50' : 'border-slate-200 bg-white hover:bg-slate-50',
-                    )}
-                    onClick={() =>
-                      setLocalModifierIds((current) =>
-                        active ? current.filter((entry) => entry !== modifier.id) : [...current, modifier.id],
-                      )
-                    }
-                  >
-                    <span className="font-semibold">{modifier.name}</span>
-                    <span className="text-sm text-slate-500">
-                      {modifier.priceDelta >= 0 ? '+' : ''}
-                      {currency(modifier.priceDelta)}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        ) : null}
-        {!basketItemId ? (
-          <div className="mt-5">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Quantity</p>
-            <div className="mt-3 flex items-center gap-3">
-              <Button variant="outline" onClick={() => setLocalQuantity((current) => Math.max(1, current - 1))}>-</Button>
-              <div className="rounded-2xl border border-slate-200 px-5 py-3 text-lg font-bold">{localQuantity}</div>
-              <Button variant="outline" onClick={() => setLocalQuantity((current) => current + 1)}>+</Button>
-            </div>
-          </div>
-        ) : null}
-        <div className="mt-6 flex items-center justify-between rounded-2xl bg-slate-950 px-4 py-4 text-white">
+        <div className="mt-4 flex items-center justify-between rounded-2xl bg-slate-950 px-4 py-4 text-white">
           <div>
             <p className="text-xs uppercase tracking-[0.25em] text-slate-300">Item total</p>
             <p className="mt-1 text-2xl font-bold">{currency((menuItem.price + modifierTotal) * localQuantity)}</p>
