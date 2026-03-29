@@ -70,6 +70,7 @@ export function OrderEntryPage() {
   const masterDataLoadError = usePizzaOpsStore((state) => state.masterDataLoadError)
   const createOrder = usePizzaOpsStore((state) => state.createOrder)
   const collectOrderPayment = usePizzaOpsStore((state) => state.collectOrderPayment)
+  const deleteUnpaidOrder = usePizzaOpsStore((state) => state.deleteUnpaidOrder)
   const updatePaymentCheckout = usePizzaOpsStore((state) => state.updatePaymentCheckout)
   const updatePaymentStatus = usePizzaOpsStore((state) => state.updatePaymentStatus)
   const payments = usePizzaOpsStore((state) => state.payments)
@@ -357,7 +358,10 @@ export function OrderEntryPage() {
     setCustomerName('')
     setMobile('')
     setEmail('')
+    setSource('walkup')
+    setPaymentMethod('sumup_online')
     setNotes('')
+    setSelectedTime('')
     setPagerNumber('')
     setOrderDiscountDraft(null)
     setDiscountCodeInput('')
@@ -661,6 +665,22 @@ export function OrderEntryPage() {
 
       <Card className="p-4 sm:p-5">
         <h2 className="font-display text-2xl font-bold">Basket and customer</h2>
+        <div className="mt-3 flex justify-end">
+          <Button
+            variant="outline"
+            onClick={() => {
+              const hadSavedOrder = Boolean(draftOrderId)
+              resetDraft()
+              setMessage(
+                hadSavedOrder
+                  ? 'Draft cleared. The saved unpaid order is still available below.'
+                  : 'Current ticket cleared.',
+              )
+            }}
+          >
+            Clear ticket
+          </Button>
+        </div>
         <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -890,6 +910,30 @@ export function OrderEntryPage() {
                       }}
                     >
                       Cash
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const confirmed = window.confirm('Delete this unpaid order?\n\nThis cannot be undone.')
+                        if (!confirmed) {
+                          return
+                        }
+
+                        void deleteUnpaidOrder(order.id, 'manager').then((result) => {
+                          if (!result.ok) {
+                            setMessage(result.error)
+                            return
+                          }
+
+                          if (draftOrderId === order.id) {
+                            resetDraft()
+                          }
+                          setMessage(`${order.reference} deleted.`)
+                        })
+                      }}
+                    >
+                      Delete
                     </Button>
                   </div>
                 </div>

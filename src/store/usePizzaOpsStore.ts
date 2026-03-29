@@ -108,6 +108,10 @@ type StoreState = ServiceSnapshot & {
     orderId: string,
     input: { customerEmail?: string; actor: string },
   ) => Promise<{ ok: true } | { ok: false; error: string }>
+  deleteUnpaidOrder: (
+    orderId: string,
+    actor: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
   sendReceiptForOrder: (orderId: string) => Promise<{ ok: true } | { ok: false; error: string }>
   retryLoyverseSync: (queueId: string) => void
   getAvailableTimes: (items: OrderItem[]) => ReturnType<typeof getAvailableSlots>
@@ -668,6 +672,36 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
     if (modifierWrite.error) {
       throw new Error(`Order modifier save failed. ${modifierWrite.error.message}`)
     }
+  }
+}
+
+async function deleteOrderFromSupabase(orderId: string) {
+  if (!supabase) {
+    throw new Error('Order deletion is unavailable because Supabase is not configured.')
+  }
+
+  const itemLookup = await supabase.from('order_items').select('id').eq('order_id', orderId)
+  if (itemLookup.error) {
+    throw new Error(`Order item lookup failed. ${itemLookup.error.message}`)
+  }
+
+  const itemIds = (itemLookup.data ?? []).map((row) => row.id as string)
+
+  if (itemIds.length) {
+    const modifierDelete = await supabase.from('order_item_modifiers').delete().in('order_item_id', itemIds)
+    if (modifierDelete.error) {
+      throw new Error(`Order modifier delete failed. ${modifierDelete.error.message}`)
+    }
+
+    const itemDelete = await supabase.from('order_items').delete().eq('order_id', orderId)
+    if (itemDelete.error) {
+      throw new Error(`Order item delete failed. ${itemDelete.error.message}`)
+    }
+  }
+
+  const orderDelete = await supabase.from('orders').delete().eq('id', orderId)
+  if (orderDelete.error) {
+    throw new Error(`Order delete failed. ${orderDelete.error.message}`)
   }
 }
 
@@ -1739,6 +1773,41 @@ export const usePizzaOpsStore = create<StoreState>()(
             return {
               ok: false as const,
               error: error instanceof Error ? error.message : 'Order contact update failed.',
+            }
+          }
+        },
+        deleteUnpaidOrder: async (orderId, actor) => {
+          const state = get()
+          const order = state.orders.find((entry) => entry.id === orderId)
+
+          if (!order) {
+            return { ok: false as const, error: 'Order not found.' }
+          }
+
+          if (order.paymentStatus === 'paid') {
+            return { ok: false as const, error: 'Paid orders cannot be deleted from order entry.' }
+          }
+
+          try {
+            await deleteOrderFromSupabase(orderId)
+            commit((current) => {
+              const remainingOrders = current.orders.filter((entry) => entry.id !== orderId)
+              return {
+                orders: remainingOrders,
+                payments: rebuildPaymentsFromOrders(remainingOrders, current.payments),
+                history: current.history.filter((entry) => entry.orderId !== orderId),
+                loyverseQueue: current.loyverseQueue.filter((entry) => entry.orderId !== orderId),
+                activityLog: [
+                  createActivity('payment_updated', actor, `${order.reference} deleted from recent/unpaid orders.`, orderId),
+                  ...current.activityLog,
+                ],
+              }
+            })
+            return { ok: true as const }
+          } catch (error) {
+            return {
+              ok: false as const,
+              error: error instanceof Error ? error.message : 'Order delete failed.',
             }
           }
         },
