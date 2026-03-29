@@ -507,6 +507,36 @@ export function OrderEntryPage() {
     setIsSubmitting(true)
     setMessage(null)
 
+    if (draftOrderId) {
+      if (paymentMethod === 'tap_to_pay') {
+        setIsSubmitting(false)
+        await sendExistingOrderToTerminal(draftOrderId)
+        return
+      }
+
+      if (paymentMethod === 'cash') {
+        const result = await collectOrderPayment(draftOrderId, {
+          paymentMethod: 'cash',
+          actor: 'manager',
+        })
+
+        if (!result.ok) {
+          setMessage(result.error)
+          setIsSubmitting(false)
+          return
+        }
+
+        resetDraft()
+        setMessage('Saved unpaid order marked paid with cash.')
+        setIsSubmitting(false)
+        return
+      }
+
+      setMessage('Resume keeps the saved order open. Use Card, Cash, or Delete for this unpaid order.')
+      setIsSubmitting(false)
+      return
+    }
+
     const submittedPaymentMethod: PaymentMethod | null =
       paymentMethod === 'preorder'
         ? null
@@ -857,8 +887,27 @@ export function OrderEntryPage() {
               {basket.length ? 'No collection slots available right now.' : 'Add an item to load valid collection times.'}
             </p>
           ) : null}
+          {draftOrderId ? (
+            <p className="mt-3 text-sm text-slate-300">
+              Resume keeps this saved order and its stock reservation in place. Use Card or Cash to complete it, or Delete below to abandon it and release stock.
+            </p>
+          ) : null}
           <Button className="mt-4 w-full" size="lg" onClick={() => void submitOrder()} disabled={isSubmitting || Boolean(pendingTerminalOrderId)}>
-            {isSubmitting ? 'Starting checkout...' : paymentMethod === 'sumup_online' ? 'Pay with SumUp' : paymentMethod === 'tap_to_pay' ? 'Send to card terminal' : paymentMethod === 'preorder' ? 'Create preorder' : 'Place order'}
+            {isSubmitting
+              ? 'Starting checkout...'
+              : draftOrderId
+                ? paymentMethod === 'tap_to_pay'
+                  ? 'Retry card on saved order'
+                  : paymentMethod === 'cash'
+                    ? 'Take cash for saved order'
+                    : 'Saved order loaded'
+                : paymentMethod === 'sumup_online'
+                  ? 'Pay with SumUp'
+                  : paymentMethod === 'tap_to_pay'
+                    ? 'Send to card terminal'
+                    : paymentMethod === 'preorder'
+                      ? 'Create preorder'
+                      : 'Place order'}
           </Button>
           {message ? <p className="mt-3 text-sm text-orange-200">{message}</p> : null}
         </div>
@@ -942,6 +991,7 @@ export function OrderEntryPage() {
               <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">No unpaid orders for this service.</p>
             )}
           </div>
+          <p className="mt-3 text-xs text-slate-500">Resume keeps the order and stock reservation active. Delete removes the order and releases stock by removing it from the derived orders set.</p>
         </div>
       </Card>
     </div>
