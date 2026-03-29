@@ -111,8 +111,8 @@ export async function getTerminalSumUpCheckoutStatus(input: {
     throw new Error(message)
   }
 
-  if (!('clientTransactionId' in data) || !data.clientTransactionId) {
-    throw new Error('Terminal payment status response was missing transaction details.')
+  if (!('paymentStatus' in data)) {
+    throw new Error('Terminal payment status response was missing payment status details.')
   }
 
   return data
