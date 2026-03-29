@@ -5,12 +5,12 @@ export type HostedCheckoutResponse = {
 }
 
 export type TerminalCheckoutResponse = {
-  clientTransactionId: string
+  clientTransactionId: string | null
   paymentStatus: 'pending'
 }
 
 export type TerminalCheckoutStatusResponse = {
-  clientTransactionId: string
+  clientTransactionId: string | null
   providerStatus: string | null
   paymentStatus: 'pending' | 'paid' | 'failed'
   finalized: boolean
@@ -69,6 +69,8 @@ export async function createTerminalSumUpCheckout(input: {
     | TerminalCheckoutResponse
     | { error?: string; details?: unknown }
 
+  console.info('createTerminalSumUpCheckout response', data)
+
   if (!response.ok) {
     const message =
       'error' in data && typeof data.error === 'string'
@@ -77,8 +79,9 @@ export async function createTerminalSumUpCheckout(input: {
     throw new Error(message)
   }
 
-  if (!('clientTransactionId' in data) || !data.clientTransactionId) {
-    throw new Error('Terminal payment response was missing transaction details.')
+  if (!('paymentStatus' in data) || data.paymentStatus !== 'pending') {
+    console.error('createTerminalSumUpCheckout invalid response', data)
+    throw new Error('Terminal payment response was missing pending status details.')
   }
 
   return data
@@ -86,7 +89,7 @@ export async function createTerminalSumUpCheckout(input: {
 
 export async function getTerminalSumUpCheckoutStatus(input: {
   orderId: string
-  clientTransactionId: string
+  clientTransactionId?: string | null
 }) {
   const response = await fetch('/api/payments/sumup-terminal-status', {
     method: 'POST',
@@ -117,7 +120,7 @@ export async function getTerminalSumUpCheckoutStatus(input: {
 
 export async function pollTerminalSumUpCheckoutStatus(input: {
   orderId: string
-  clientTransactionId: string
+  clientTransactionId?: string | null
   intervalMs?: number
   maxAttempts?: number
   onUpdate?: (status: TerminalCheckoutStatusResponse) => void

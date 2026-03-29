@@ -416,10 +416,17 @@ export function OrderEntryPage() {
           orderId: result.orderId,
         })
 
-        await updatePaymentCheckout(paymentId, {
-          providerReference: checkout.clientTransactionId,
-          status: 'pending',
-        })
+        await updatePaymentCheckout(
+          paymentId,
+          checkout.clientTransactionId
+            ? {
+                providerReference: checkout.clientTransactionId,
+                status: 'pending',
+              }
+            : {
+                status: 'pending',
+              },
+        )
 
         setBasket([])
         setCustomerName('')

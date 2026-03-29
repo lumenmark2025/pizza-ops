@@ -46,10 +46,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing orderId.' })
   }
 
-  if (!clientTransactionId || typeof clientTransactionId !== 'string') {
-    return res.status(400).json({ error: 'Missing clientTransactionId.' })
-  }
-
   try {
     const { merchantCode } = getSumUpConfig()
     if (!merchantCode) {
@@ -59,11 +55,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.info('sumup-terminal-status request', {
       merchantCode,
       orderId,
-      clientTransactionId,
+      clientTransactionId: typeof clientTransactionId === 'string' ? clientTransactionId : null,
     })
 
+    const lookupClientTransactionId =
+      typeof clientTransactionId === 'string' && clientTransactionId.trim()
+        ? clientTransactionId
+        : null
+
+    const queryParam = lookupClientTransactionId
+      ? `client_transaction_id=${encodeURIComponent(lookupClientTransactionId)}`
+      : `foreign_transaction_id=${encodeURIComponent(orderId)}`
+
     const verifiedTransaction = await sumupRequest<SumUpTransaction>(
-      `/v2.1/merchants/${merchantCode}/transactions?client_transaction_id=${encodeURIComponent(clientTransactionId)}`,
+      `/v2.1/merchants/${merchantCode}/transactions?${queryParam}`,
       {
         method: 'GET',
       },
@@ -87,7 +92,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: 'Order not found.' })
     }
 
-    if (order.payment_reference && order.payment_reference !== clientTransactionId) {
+    if (
+      lookupClientTransactionId &&
+      order.payment_reference &&
+      order.payment_reference !== lookupClientTransactionId
+    ) {
       return res.status(409).json({
         error: 'Order payment reference does not match the terminal transaction being polled.',
       })
@@ -100,7 +109,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('orders')
         .update({
           payment_status: nextPaymentStatus,
-          payment_reference: clientTransactionId,
+          payment_reference: lookupClientTransactionId ?? order.payment_reference,
           receipt_email_status:
             nextPaymentStatus === 'paid' && order.customer_email
               ? order.receipt_email_status === 'sent'
@@ -116,7 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(200).json({
-      clientTransactionId,
+      clientTransactionId: verifiedTransaction.client_transaction_id ?? lookupClientTransactionId,
       providerStatus: verifiedTransaction.status ?? null,
       paymentStatus: nextPaymentStatus,
       finalized,

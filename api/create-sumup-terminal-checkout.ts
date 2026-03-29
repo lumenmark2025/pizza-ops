@@ -124,12 +124,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const clientTransactionId = checkout.data?.client_transaction_id ?? null
 
-    if (!clientTransactionId) {
-      return res.status(502).json({
-        error: 'SumUp checkout response was missing a client transaction identifier.',
-      })
-    }
-
     const { error: updateError } = await supabase
       .from('orders')
       .update({
@@ -143,10 +137,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: `Order payment state update failed. ${updateError.message}` })
     }
 
-    return res.status(200).json({
+    const responseBody = {
       clientTransactionId,
       paymentStatus: 'pending',
-    })
+    }
+
+    console.info('sumup-terminal-checkout frontend response body', responseBody)
+
+    return res.status(200).json(responseBody)
   } catch (error) {
     console.error('create-sumup-terminal-checkout error', error)
     return res.status(500).json({
