@@ -358,13 +358,13 @@ export function ServiceEditPanel() {
       const nextPayment = usePizzaOpsStore.getState().payments.find((entry) => entry.orderId === orderId)
       if (nextPayment) {
         await usePizzaOpsStore.getState().updatePaymentCheckout(nextPayment.id, {
-          providerReference: checkout.checkoutId,
+          providerReference: checkout.clientTransactionId,
           status: 'pending',
         })
 
         void pollTerminalSumUpCheckoutStatus({
           orderId,
-          checkoutId: checkout.checkoutId,
+          clientTransactionId: checkout.clientTransactionId,
           onUpdate: (status) => {
             if (!status.finalized) {
               return

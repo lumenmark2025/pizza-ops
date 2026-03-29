@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { getSumUpConfig, sumupRequest } from '../_lib/sumup.js'
 import { getSupabaseServerClient } from '../_lib/supabase-server.js'
-import { sumupRequest } from '../_lib/sumup.js'
 
 type SumUpCheckout = {
   id: string
@@ -8,11 +8,73 @@ type SumUpCheckout = {
   transaction_id?: string | null
 }
 
+type SumUpTransaction = {
+  id: string
+  client_transaction_id?: string | null
+  foreign_transaction_id?: string | null
+}
+
 type OrderRow = {
   id: string
   payment_status: string | null
   receipt_email_status: string | null
   customer_email: string | null
+}
+
+async function findOrderForWebhook(input: {
+  supabase: ReturnType<typeof getSupabaseServerClient>
+  checkoutId: string
+  transactionId?: string | null
+}) {
+  const { supabase, checkoutId, transactionId } = input
+
+  const byLegacyCheckoutReference = await supabase
+    .from('orders')
+    .select('id, payment_status, receipt_email_status, customer_email')
+    .eq('payment_reference', checkoutId)
+    .maybeSingle()
+
+  if (byLegacyCheckoutReference.data || byLegacyCheckoutReference.error) {
+    return byLegacyCheckoutReference
+  }
+
+  if (!transactionId) {
+    return byLegacyCheckoutReference
+  }
+
+  const { merchantCode } = getSumUpConfig()
+  if (!merchantCode) {
+    return byLegacyCheckoutReference
+  }
+
+  const verifiedTransaction = await sumupRequest<SumUpTransaction>(
+    `/v2.1/merchants/${merchantCode}/transactions?id=${encodeURIComponent(transactionId)}`,
+    {
+      method: 'GET',
+    },
+  )
+
+  if (verifiedTransaction.client_transaction_id) {
+    const byClientTransactionId = await supabase
+      .from('orders')
+      .select('id, payment_status, receipt_email_status, customer_email')
+      .eq('payment_reference', verifiedTransaction.client_transaction_id)
+      .maybeSingle()
+
+    if (byClientTransactionId.data || byClientTransactionId.error) {
+      return byClientTransactionId
+    }
+  }
+
+  if (verifiedTransaction.foreign_transaction_id) {
+    return supabase
+      .from('orders')
+      .select('id, payment_status, receipt_email_status, customer_email')
+      .eq('id', verifiedTransaction.foreign_transaction_id)
+      .maybeSingle()
+  }
+
+  return byLegacyCheckoutReference
 }
 
 function getWebhookCheckoutId(body: unknown) {
@@ -67,11 +129,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
     const nextPaymentStatus = mapCheckoutStatus(verifiedCheckout.status)
 
-    const { data, error: orderError } = await supabase
-      .from('orders')
-      .select('id, payment_status, receipt_email_status, customer_email')
-      .eq('payment_reference', checkoutId)
-      .maybeSingle()
+    const { data, error: orderError } = await findOrderForWebhook({
+      supabase,
+      checkoutId,
+      transactionId: verifiedCheckout.transaction_id,
+    })
 
     const order = (data as OrderRow | null) ?? null
 

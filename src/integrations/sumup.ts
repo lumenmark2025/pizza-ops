@@ -5,12 +5,12 @@ export type HostedCheckoutResponse = {
 }
 
 export type TerminalCheckoutResponse = {
-  checkoutId: string
+  clientTransactionId: string
   paymentStatus: 'pending'
 }
 
 export type TerminalCheckoutStatusResponse = {
-  checkoutId: string
+  clientTransactionId: string
   providerStatus: string | null
   paymentStatus: 'pending' | 'paid' | 'failed'
   finalized: boolean
@@ -77,8 +77,8 @@ export async function createTerminalSumUpCheckout(input: {
     throw new Error(message)
   }
 
-  if (!('checkoutId' in data) || !data.checkoutId) {
-    throw new Error('Terminal payment response was missing checkout details.')
+  if (!('clientTransactionId' in data) || !data.clientTransactionId) {
+    throw new Error('Terminal payment response was missing transaction details.')
   }
 
   return data
@@ -86,7 +86,7 @@ export async function createTerminalSumUpCheckout(input: {
 
 export async function getTerminalSumUpCheckoutStatus(input: {
   orderId: string
-  checkoutId: string
+  clientTransactionId: string
 }) {
   const response = await fetch('/api/payments/sumup-terminal-status', {
     method: 'POST',
@@ -108,8 +108,8 @@ export async function getTerminalSumUpCheckoutStatus(input: {
     throw new Error(message)
   }
 
-  if (!('checkoutId' in data) || !data.checkoutId) {
-    throw new Error('Terminal payment status response was missing checkout details.')
+  if (!('clientTransactionId' in data) || !data.clientTransactionId) {
+    throw new Error('Terminal payment status response was missing transaction details.')
   }
 
   return data
@@ -117,7 +117,7 @@ export async function getTerminalSumUpCheckoutStatus(input: {
 
 export async function pollTerminalSumUpCheckoutStatus(input: {
   orderId: string
-  checkoutId: string
+  clientTransactionId: string
   intervalMs?: number
   maxAttempts?: number
   onUpdate?: (status: TerminalCheckoutStatusResponse) => void
@@ -129,7 +129,7 @@ export async function pollTerminalSumUpCheckoutStatus(input: {
     await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
     const status = await getTerminalSumUpCheckoutStatus({
       orderId: input.orderId,
-      checkoutId: input.checkoutId,
+      clientTransactionId: input.clientTransactionId,
     })
     input.onUpdate?.(status)
     if (status.finalized) {
@@ -138,7 +138,7 @@ export async function pollTerminalSumUpCheckoutStatus(input: {
   }
 
   return {
-    checkoutId: input.checkoutId,
+    clientTransactionId: input.clientTransactionId,
     providerStatus: null,
     paymentStatus: 'pending' as const,
     finalized: false,

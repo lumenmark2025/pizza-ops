@@ -417,7 +417,7 @@ export function OrderEntryPage() {
         })
 
         await updatePaymentCheckout(paymentId, {
-          providerReference: checkout.checkoutId,
+          providerReference: checkout.clientTransactionId,
           status: 'pending',
         })
 
@@ -435,7 +435,7 @@ export function OrderEntryPage() {
 
         void pollTerminalSumUpCheckoutStatus({
           orderId: result.orderId,
-          checkoutId: checkout.checkoutId,
+          clientTransactionId: checkout.clientTransactionId,
           onUpdate: (status) => {
             if (!status.finalized) {
               return

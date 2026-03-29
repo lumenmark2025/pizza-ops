@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { getSumUpConfig, sumupRequest } from '../_lib/sumup.js'
 import { getSupabaseServerClient } from '../_lib/supabase-server.js'
-import { sumupRequest } from '../_lib/sumup.js'
 
-type SumUpCheckout = {
+type SumUpTransaction = {
   id: string
   status?: string | null
-  transaction_id?: string | null
+  client_transaction_id?: string | null
 }
 
 type OrderRow = {
@@ -40,21 +40,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'Missing Supabase server environment variables' })
   }
 
-  const { orderId, checkoutId } = req.body ?? {}
+  const { orderId, clientTransactionId } = req.body ?? {}
 
   if (!orderId || typeof orderId !== 'string') {
     return res.status(400).json({ error: 'Missing orderId.' })
   }
 
-  if (!checkoutId || typeof checkoutId !== 'string') {
-    return res.status(400).json({ error: 'Missing checkoutId.' })
+  if (!clientTransactionId || typeof clientTransactionId !== 'string') {
+    return res.status(400).json({ error: 'Missing clientTransactionId.' })
   }
 
   try {
-    const verifiedCheckout = await sumupRequest<SumUpCheckout>(`/v0.1/checkouts/${checkoutId}`, {
-      method: 'GET',
-    })
-    const nextPaymentStatus = mapCheckoutStatus(verifiedCheckout.status)
+    const { merchantCode } = getSumUpConfig()
+    if (!merchantCode) {
+      return res.status(500).json({ error: 'Missing SUMUP_MERCHANT_CODE.' })
+    }
+
+    const verifiedTransaction = await sumupRequest<SumUpTransaction>(
+      `/v2.1/merchants/${merchantCode}/transactions?client_transaction_id=${encodeURIComponent(clientTransactionId)}`,
+      {
+        method: 'GET',
+      },
+    )
+    const nextPaymentStatus = mapCheckoutStatus(verifiedTransaction.status)
 
     const { data, error: orderError } = await supabase
       .from('orders')
@@ -72,9 +80,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: 'Order not found.' })
     }
 
-    if (order.payment_reference && order.payment_reference !== checkoutId) {
+    if (order.payment_reference && order.payment_reference !== clientTransactionId) {
       return res.status(409).json({
-        error: 'Order payment reference does not match the terminal checkout being polled.',
+        error: 'Order payment reference does not match the terminal transaction being polled.',
       })
     }
 
@@ -85,7 +93,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('orders')
         .update({
           payment_status: nextPaymentStatus,
-          payment_reference: checkoutId,
+          payment_reference: clientTransactionId,
           receipt_email_status:
             nextPaymentStatus === 'paid' && order.customer_email
               ? order.receipt_email_status === 'sent'
@@ -101,11 +109,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(200).json({
-      checkoutId,
-      providerStatus: verifiedCheckout.status ?? null,
+      clientTransactionId,
+      providerStatus: verifiedTransaction.status ?? null,
       paymentStatus: nextPaymentStatus,
       finalized,
-      transactionId: verifiedCheckout.transaction_id ?? null,
+      transactionId: verifiedTransaction.id ?? null,
     })
   } catch (error) {
     console.error('sumup-terminal-status error', error)
