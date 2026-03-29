@@ -56,12 +56,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'Missing SUMUP_MERCHANT_CODE.' })
     }
 
+    console.info('sumup-terminal-status request', {
+      merchantCode,
+      orderId,
+      clientTransactionId,
+    })
+
     const verifiedTransaction = await sumupRequest<SumUpTransaction>(
       `/v2.1/merchants/${merchantCode}/transactions?client_transaction_id=${encodeURIComponent(clientTransactionId)}`,
       {
         method: 'GET',
       },
     )
+    console.info('sumup-terminal-status response body', verifiedTransaction)
     const nextPaymentStatus = mapCheckoutStatus(verifiedTransaction.status)
 
     const { data, error: orderError } = await supabase

@@ -120,6 +120,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     )
 
+    console.info('sumup-terminal-checkout response body', checkout)
+
     const clientTransactionId = checkout.data?.client_transaction_id ?? null
 
     if (!clientTransactionId) {
