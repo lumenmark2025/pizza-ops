@@ -31,7 +31,7 @@ import { getMenuAvailability } from '../lib/slot-engine'
 import { addMinutes, formatTime } from '../lib/time'
 import { cn, currency, isValidEmail } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
-import type { AppliedDiscountSummary, DiscountCode, MenuItem, OrderItem, PaymentStatus, PricingSummary } from '../types/domain'
+import type { AppliedDiscountSummary, DiscountCode, Location, MenuItem, OrderItem, PaymentStatus, PricingSummary, ServiceConfig } from '../types/domain'
 
 const PUBLIC_DRAFT_KEY = 'pizza_ops_public_order_draft_v1'
 
@@ -438,7 +438,7 @@ function formatCustomerServiceDateTime(date: string, startTime: string, endTime:
   const end = new Date(`${date}T${endTime}:00`)
 
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return `${date} · ${startTime} to ${endTime}`
+    return `${date} ${startTime} - ${endTime}`
   }
 
   const today = new Date()
@@ -487,6 +487,19 @@ function formatCustomerServiceDateTime(date: string, startTime: string, endTime:
 function isGlutenFreeBaseModifierName(name: string) {
   const normalized = name.trim().toLowerCase().replace(/[\s_-]+/g, ' ')
   return normalized.includes('gluten free')
+}
+
+function getCustomerServiceCardDisplay(service: ServiceConfig, location?: Location) {
+  const title = location?.name?.trim() || service.locationName?.trim() || service.name?.trim() || 'Collection service'
+  const locationLine = location
+    ? `${location.addressLine1}${location.addressLine2 ? `, ${location.addressLine2}` : ''}, ${location.townCity} ${location.postcode}`
+    : service.locationName?.trim() || null
+
+  return {
+    title,
+    locationLine,
+    dateTime: formatCustomerServiceDateTime(service.date, service.startTime, service.lastCollectionTime),
+  }
 }
 
 function MenuItemMedia({
@@ -780,11 +793,18 @@ export function CustomerOrderPage() {
   const eligibleServices = useEligibleServices()
   const locations = usePizzaOpsStore((state) => state.locations)
   const branding = usePizzaOpsStore((state) => state.branding)
+  const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
 
   return (
     <CustomerShell eyebrow="Public Ordering" title="Choose where you’re collecting from">
       <div className="grid gap-4">
-        {!eligibleServices.length ? (
+        {!remoteReady ? (
+          <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] sm:p-6">
+            <h2 className="font-display text-2xl font-bold">Loading services</h2>
+            <p className="mt-2 text-sm text-slate-600">Refreshing available collection locations and times...</p>
+          </Card>
+        ) : null}
+        {remoteReady && !eligibleServices.length ? (
           <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] sm:p-6">
             <h2 className="font-display text-2xl font-bold">No services available right now</h2>
             <p className="mt-2 text-sm text-slate-600">
@@ -792,20 +812,16 @@ export function CustomerOrderPage() {
             </p>
           </Card>
         ) : null}
-        {eligibleServices.map((service) => {
+        {remoteReady ? eligibleServices.map((service) => {
           const location = locations.find((entry) => entry.id === service.locationId)
+          const display = getCustomerServiceCardDisplay(service, location)
           return (
             <Link key={service.id} to={`/order/service/${service.id}`} className="block rounded-[28px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:bg-white sm:p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="font-display text-3xl font-bold">{service.name}</h2>
-                  <p className="mt-2 text-sm text-slate-600">
-                    {location?.addressLine1}
-                    {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
-                  </p>
-                  <p className="mt-2 text-sm text-slate-500">
-                    {formatCustomerServiceDateTime(service.date, service.startTime, service.lastCollectionTime)}
-                  </p>
+                  <h2 className="font-display text-3xl font-bold">{display.title}</h2>
+                  {display.locationLine ? <p className="mt-2 text-sm text-slate-600">{display.locationLine}</p> : null}
+                  <p className="mt-2 text-sm text-slate-500">{display.dateTime}</p>
                 </div>
                 <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
               </div>
@@ -821,7 +837,7 @@ export function CustomerOrderPage() {
               </div>
             </Link>
           )
-        })}
+        }) : null}
       </div>
     </CustomerShell>
   )
@@ -831,8 +847,17 @@ export function CustomerLocationPage() {
   const { locationId } = useParams()
   const eligibleServices = useEligibleServices()
   const locations = usePizzaOpsStore((state) => state.locations)
+  const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
   const location = locations.find((entry) => entry.id === locationId)
   const services = eligibleServices.filter((entry) => entry.locationId === locationId)
+
+  if (!remoteReady) {
+    return (
+      <CustomerShell eyebrow="Choose Service" title="Loading location">
+        <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">Refreshing live service times...</Card>
+      </CustomerShell>
+    )
+  }
 
   if (!location) {
     return <Navigate to="/order" replace />
@@ -846,19 +871,20 @@ export function CustomerLocationPage() {
           {location.addressLine2 ? `, ${location.addressLine2}` : ''}, {location.townCity} {location.postcode}
         </p>
         <div className="mt-5 grid gap-3">
-          {services.map((service) => (
-            <Link key={service.id} to={`/order/service/${service.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold">{service.name}</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {formatCustomerServiceDateTime(service.date, service.startTime, service.lastCollectionTime)}
-                  </p>
+          {services.map((service) => {
+            const display = getCustomerServiceCardDisplay(service, location)
+            return (
+              <Link key={service.id} to={`/order/service/${service.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{display.title}</p>
+                    <p className="mt-1 text-sm text-slate-500">{display.dateTime}</p>
+                  </div>
+                  <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
                 </div>
-                <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
-              </div>
-            </Link>
-          ))}
+              </Link>
+            )
+          })}
         </div>
         <div className="mt-5">
           <Link to="/order">
