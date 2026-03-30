@@ -443,6 +443,57 @@ function ServiceStatusBadge({
   return <Badge variant={status === 'live' ? 'green' : 'blue'}>{status === 'live' ? 'Ordering open' : 'Pre-orders open'}</Badge>
 }
 
+function formatCustomerServiceDateTime(date: string, startTime: string, endTime: string) {
+  const start = new Date(`${date}T${startTime}:00`)
+  const end = new Date(`${date}T${endTime}:00`)
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return `${date} · ${startTime} to ${endTime}`
+  }
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const tomorrow = new Date(today)
+  tomorrow.setDate(today.getDate() + 1)
+
+  const startDay = new Date(start)
+  startDay.setHours(0, 0, 0, 0)
+
+  const timeFormatter = new Intl.DateTimeFormat('en-GB', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+
+  const monthFormatter = new Intl.DateTimeFormat('en-GB', { month: 'short' })
+
+  const formatCompactTime = (value: Date) =>
+    timeFormatter
+      .format(value)
+      .replace(':00', '')
+      .replace(' am', 'am')
+      .replace(' pm', 'pm')
+
+  const day = start.getDate()
+  const suffix =
+    day % 10 === 1 && day % 100 !== 11
+      ? 'st'
+      : day % 10 === 2 && day % 100 !== 12
+        ? 'nd'
+        : day % 10 === 3 && day % 100 !== 13
+          ? 'rd'
+          : 'th'
+
+  const dayLabel =
+    startDay.getTime() === today.getTime()
+      ? 'Today'
+      : startDay.getTime() === tomorrow.getTime()
+        ? 'Tomorrow'
+        : `${monthFormatter.format(start)} ${day}${suffix}`
+
+  return `${dayLabel} ${formatCompactTime(start)} - ${formatCompactTime(end)}`
+}
+
 function MenuItemMedia({
   imageUrl,
   name,
@@ -749,7 +800,9 @@ export function CustomerOrderPage() {
                     {location?.addressLine1}
                     {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
                   </p>
-                  <p className="mt-2 text-sm text-slate-500">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
+                  <p className="mt-2 text-sm text-slate-500">
+                    {formatCustomerServiceDateTime(service.date, service.startTime, service.lastCollectionTime)}
+                  </p>
                 </div>
                 <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
               </div>
@@ -795,7 +848,9 @@ export function CustomerLocationPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="font-semibold">{service.name}</p>
-                  <p className="mt-1 text-sm text-slate-500">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {formatCustomerServiceDateTime(service.date, service.startTime, service.lastCollectionTime)}
+                  </p>
                 </div>
                 <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
               </div>
@@ -989,7 +1044,9 @@ export function CustomerServicePage() {
                   {location?.addressLine1}
                   {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
                 </p>
-                <p className="mt-2 text-sm text-slate-600">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
+                <p className="mt-2 text-sm text-slate-600">
+                  {formatCustomerServiceDateTime(service.date, service.startTime, service.lastCollectionTime)}
+                </p>
               </div>
               <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
             </div>
