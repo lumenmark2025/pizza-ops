@@ -1029,7 +1029,9 @@ export function CustomerBoardPage() {
   }
   const displayedBoardOrdersCount =
     grouped.taken.length + grouped.prepping.length + grouped.in_oven.length + grouped.ready.length
+  const renderedAt = new Date().toISOString()
   console.info('[pizza-ops] CustomerBoardPage render', {
+    renderedAt,
     serviceId: service.id,
     orders: orders.length,
     displayedBoardOrdersCount,
@@ -1038,6 +1040,12 @@ export function CustomerBoardPage() {
       prepping: grouped.prepping.length,
       inOven: grouped.in_oven.length,
       ready: grouped.ready.length,
+    },
+    orderRefsByStage: {
+      taken: grouped.taken.map((order) => order.reference),
+      prepping: grouped.prepping.map((order) => order.reference),
+      inOven: grouped.in_oven.map((order) => order.reference),
+      ready: grouped.ready.map((order) => order.reference),
     },
     realtimeStatus,
   })
