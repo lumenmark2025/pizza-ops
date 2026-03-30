@@ -363,28 +363,18 @@ function useEligibleServices() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const maxDate = new Date(today)
-    maxDate.setDate(today.getDate() + 7)
+    maxDate.setDate(today.getDate() + 5)
 
-    const visible = services.filter((entry) => {
+    return services.filter((entry) => {
       const serviceDate = new Date(`${entry.date}T00:00:00`)
       return (
+        !Number.isNaN(serviceDate.getTime()) &&
         serviceDate >= today &&
         serviceDate <= maxDate &&
         entry.status !== 'cancelled' &&
         entry.acceptPublicOrders
       )
     })
-
-    if (visible.length) {
-      return visible
-    }
-
-    return services.filter(
-      (entry) =>
-        entry.acceptPublicOrders &&
-        entry.status !== 'cancelled' &&
-        (entry.status === 'live' || entry.status === 'paused'),
-    )
   }, [services])
 }
 
@@ -492,6 +482,11 @@ function formatCustomerServiceDateTime(date: string, startTime: string, endTime:
         : `${monthFormatter.format(start)} ${day}${suffix}`
 
   return `${dayLabel} ${formatCompactTime(start)} - ${formatCompactTime(end)}`
+}
+
+function isGlutenFreeBaseModifierName(name: string) {
+  const normalized = name.trim().toLowerCase().replace(/[\s_-]+/g, ' ')
+  return normalized.includes('gluten free')
 }
 
 function MenuItemMedia({
@@ -685,6 +680,9 @@ function PizzaEditor({
   const modifierTotal = eligibleModifiers
     .filter((modifier) => localModifierIds.includes(modifier.id))
     .reduce((sum, modifier) => sum + modifier.priceDelta, 0)
+  const glutenFreeBaseSelected = eligibleModifiers.some(
+    (modifier) => localModifierIds.includes(modifier.id) && isGlutenFreeBaseModifierName(modifier.name),
+  )
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/45">
@@ -735,6 +733,11 @@ function PizzaEditor({
                   )
                 })}
               </div>
+              {glutenFreeBaseSelected ? (
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                  Gluten-free base selected. This product is not suitable for those with coeliac disease due to risk of cross-contamination.
+                </div>
+              ) : null}
             </div>
           ) : null}
           {!basketItemId ? (
