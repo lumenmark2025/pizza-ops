@@ -744,10 +744,7 @@ export function CustomerOrderPage() {
             <Link key={service.id} to={`/order/service/${service.id}`} className="block rounded-[28px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:bg-white sm:p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">
-                    {location?.name ?? service.locationName}
-                  </p>
-                  <h2 className="mt-2 font-display text-3xl font-bold">{service.name}</h2>
+                  <h2 className="font-display text-3xl font-bold">{service.name}</h2>
                   <p className="mt-2 text-sm text-slate-600">
                     {location?.addressLine1}
                     {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
@@ -757,13 +754,11 @@ export function CustomerOrderPage() {
                 <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
               </div>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-slate-500">
-                  {service.acceptPublicOrders
-                    ? service.status === 'live'
-                      ? 'Ordering is open now.'
-                      : 'Pre-orders are available.'
-                    : service.publicOrderClosureReason ?? 'Not currently accepting orders.'}
-                </p>
+                {service.acceptPublicOrders ? <div /> : (
+                  <p className="text-sm text-slate-500">
+                    {service.publicOrderClosureReason ?? 'Not currently accepting orders.'}
+                  </p>
+                )}
                 <Button variant="secondary" style={{ backgroundColor: branding.primaryColor, color: '#fff', borderColor: branding.primaryColor }}>
                   {branding.orderCtaLabel}
                 </Button>
