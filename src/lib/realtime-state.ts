@@ -101,8 +101,15 @@ export function subscribeToServiceOpsTables(
     return null
   }
 
-  const channel: RealtimeChannel = supabase
-    .channel(`service-ops-${serviceId}`)
+  const channelSuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  const ordersChannelName = `service-ops-orders-${serviceId}-${channelSuffix}`
+  const orderItemsChannelName = `service-ops-order-items-${serviceId}-${channelSuffix}`
+  const orderItemModifiersChannelName = `service-ops-order-item-modifiers-${serviceId}-${channelSuffix}`
+  const inventoryChannelName = `service-ops-inventory-${serviceId}-${channelSuffix}`
+  const servicesChannelName = `service-ops-services-${serviceId}-${channelSuffix}`
+
+  const ordersChannel: RealtimeChannel = supabase
+    .channel(ordersChannelName)
     .on(
       'postgres_changes',
       {
@@ -122,6 +129,17 @@ export function subscribeToServiceOpsTables(
         onChange('orders')
       },
     )
+    .subscribe((status) => {
+      console.info('[pizza-ops] service ops channel status', {
+        serviceId,
+        channel: ordersChannelName,
+        status,
+      })
+      onStatus?.(status)
+    })
+
+  const orderItemsChannel: RealtimeChannel = supabase
+    .channel(orderItemsChannelName)
     .on(
       'postgres_changes',
       {
@@ -137,6 +155,10 @@ export function subscribeToServiceOpsTables(
         }
       },
     )
+    .subscribe()
+
+  const orderItemModifiersChannel: RealtimeChannel = supabase
+    .channel(orderItemModifiersChannelName)
     .on(
       'postgres_changes',
       {
@@ -146,6 +168,10 @@ export function subscribeToServiceOpsTables(
       },
       () => onChange('order_item_modifiers'),
     )
+    .subscribe()
+
+  const inventoryChannel: RealtimeChannel = supabase
+    .channel(inventoryChannelName)
     .on(
       'postgres_changes',
       {
@@ -156,6 +182,10 @@ export function subscribeToServiceOpsTables(
       },
       () => onChange('service_inventory'),
     )
+    .subscribe()
+
+  const servicesChannel: RealtimeChannel = supabase
+    .channel(servicesChannelName)
     .on(
       'postgres_changes',
       {
@@ -166,18 +196,15 @@ export function subscribeToServiceOpsTables(
       },
       () => onChange('services'),
     )
-    .subscribe((status) => {
-      console.info('[pizza-ops] service ops channel status', {
-        serviceId,
-        channel: `service-ops-${serviceId}`,
-        status,
-      })
-      onStatus?.(status)
-    })
+    .subscribe()
 
   return () => {
     if (supabase) {
-      void supabase.removeChannel(channel)
+      void supabase.removeChannel(ordersChannel)
+      void supabase.removeChannel(orderItemsChannel)
+      void supabase.removeChannel(orderItemModifiersChannel)
+      void supabase.removeChannel(inventoryChannel)
+      void supabase.removeChannel(servicesChannel)
     }
   }
 }
