@@ -381,10 +381,12 @@ function useEligibleServices() {
 function CustomerShell({
   title,
   eyebrow,
+  headerContent,
   children,
 }: {
   title: string
   eyebrow: string
+  headerContent?: React.ReactNode
   children: React.ReactNode
 }) {
   const branding = usePizzaOpsStore((state) => state.branding)
@@ -412,6 +414,7 @@ function CustomerShell({
             {resolvedTitle}
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-slate-600">{branding.introText}</p>
+          {headerContent ? <div className="mt-4">{headerContent}</div> : null}
         </div>
         {children}
       </div>
@@ -969,6 +972,7 @@ export function CustomerServicePage() {
   }
 
   const location = locations.find((entry) => entry.id === service.locationId)
+  const serviceDisplay = getCustomerServiceCardDisplay(service, location)
   const availability = getMenuAvailability(inventory, recipes, menuItems, orders)
   const visibleMenuItems = useMemo(
     () => sortMenuItems(menuItems.map(normalizeMenuItem).filter((item) => item.active !== false)),
@@ -1061,30 +1065,27 @@ export function CustomerServicePage() {
   }
 
   return (
-    <CustomerShell eyebrow="Build Order" title={service.name}>
+    <CustomerShell
+      eyebrow="Build Order"
+      title={service.name}
+      headerContent={
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-sm text-slate-600">{serviceDisplay.title}</p>
+            {serviceDisplay.locationLine ? <p className="mt-1 text-sm text-slate-600">{serviceDisplay.locationLine}</p> : null}
+            <p className="mt-1 text-sm text-slate-600">{serviceDisplay.dateTime}</p>
+          </div>
+          <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
+        </div>
+      }
+    >
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="grid gap-4">
-          <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Collect from</p>
-                <h2 className="mt-2 font-display text-3xl font-bold">{location?.name ?? service.locationName}</h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  {location?.addressLine1}
-                  {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
-                </p>
-                <p className="mt-2 text-sm text-slate-600">
-                  {formatCustomerServiceDateTime(service.date, service.startTime, service.lastCollectionTime)}
-                </p>
-              </div>
-              <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
-            </div>
-            {!service.acceptPublicOrders ? (
-              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {service.publicOrderClosureReason ?? 'This service is not currently accepting online orders.'}
-              </div>
-            ) : null}
-          </Card>
+          {!service.acceptPublicOrders ? (
+            <Card className="rounded-[28px] border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 sm:px-6">
+              {service.publicOrderClosureReason ?? 'This service is not currently accepting online orders.'}
+            </Card>
+          ) : null}
 
           <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3">
