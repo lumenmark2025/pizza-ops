@@ -1,7 +1,10 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import type { Session } from '@supabase/supabase-js'
 import { Card } from './components/ui/card'
+import { Button } from './components/ui/button'
+import { Input } from './components/ui/input'
 import {
   CustomerCheckoutPage,
   CustomerLocationPage,
@@ -20,6 +23,7 @@ import { OrderEntryPage } from './features/operator-order-entry'
 import { AppShell } from './features/operator-shell'
 import { ServiceEditPage, ServiceNewPage, ServicesListPage } from './features/service-management'
 import { SAFE_MODE } from './lib/runtime-flags'
+import { supabase, supabaseConfigError } from './lib/supabase'
 import { usePizzaOpsStore } from './store/usePizzaOpsStore'
 
 function LoadingScreen({ message, standalone }: { message: string; standalone?: boolean }) {
@@ -141,15 +145,131 @@ function LegacyExpeditorRedirect() {
   return <Navigate to={`/expeditor/${serviceId}`} replace />
 }
 
+function LoginPage() {
+  const location = useLocation()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const redirectTo =
+    new URLSearchParams(location.search).get('redirect') || '/ops'
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!supabase) {
+      setError(supabaseConfigError ?? 'Authentication is not configured.')
+      return
+    }
+
+    setSubmitting(true)
+    setError(null)
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+    if (signInError) {
+      setError(signInError.message)
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#fffdf8_0%,#f3efe6_100%)] px-4">
+      <Card className="w-full max-w-md rounded-[28px] border-white/70 bg-white/90 p-6 shadow-[0_30px_80px_rgba(15,23,42,0.08)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Pizza Ops</p>
+        <h1 className="mt-2 font-display text-3xl font-bold">Staff sign in</h1>
+        <p className="mt-3 text-sm text-slate-600">
+          Sign in to access operational and admin routes.
+        </p>
+        <form className="mt-6 grid gap-4" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="grid gap-2">
+            <label className="text-sm font-medium text-slate-700" htmlFor="staff-email">Email</label>
+            <Input id="staff-email" autoComplete="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <label className="text-sm font-medium text-slate-700" htmlFor="staff-password">Password</label>
+            <Input id="staff-password" autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          </div>
+          {error ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {error}
+            </div>
+          ) : null}
+          <Button className="bg-orange-500 text-white hover:bg-orange-400" disabled={submitting} type="submit">
+            {submitting ? 'Signing in…' : 'Sign in'}
+          </Button>
+        </form>
+        <p className="mt-4 text-xs text-slate-500">After sign-in you will be returned to {redirectTo}.</p>
+      </Card>
+    </div>
+  )
+}
+
+function RequireAuth({
+  session,
+  authReady,
+  children,
+}: {
+  session: Session | null
+  authReady: boolean
+  children: ReactNode
+}) {
+  const location = useLocation()
+
+  if (!authReady) {
+    return <LoadingScreen message="Checking sign-in…" />
+  }
+
+  if (!session) {
+    const redirect = `${location.pathname}${location.search}${location.hash}`
+    return <Navigate to={`/login?redirect=${encodeURIComponent(redirect)}`} replace />
+  }
+
+  return <>{children}</>
+}
+
 function App() {
   const location = useLocation()
   const setOnlineStatus = usePizzaOpsStore((state) => state.setOnlineStatus)
   const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
   const activeServiceId = usePizzaOpsStore((state) => state.service.id)
   const bootstrapStartedRef = useRef(false)
+  const [authReady, setAuthReady] = useState(false)
+  const [session, setSession] = useState<Session | null>(null)
   const isStandaloneDisplayRoute = [/^\/ops\/[^/]+\/kds$/, /^\/ops\/[^/]+\/kds-2$/, /^\/ops\/[^/]+\/board$/].some((pattern) =>
     pattern.test(location.pathname),
   )
+
+  useEffect(() => {
+    if (!supabase) {
+      setAuthReady(true)
+      setSession(null)
+      return
+    }
+
+    let mounted = true
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) {
+        return
+      }
+
+      setSession(data.session ?? null)
+      setAuthReady(true)
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+      setAuthReady(true)
+    })
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     const onOnline = () => setOnlineStatus(true)
@@ -220,16 +340,19 @@ function App() {
           <Navigate to="/ops" replace />
         }
       />
+      <Route path="/login" element={<LoginPage />} />
       <Route
         path="/ops"
         element={
-          <OperationalServicePicker
-            title="Choose a service for order entry"
-            buildHref={(serviceId) => `/ops/${serviceId}`}
-          />
+          <RequireAuth authReady={authReady} session={session}>
+            <OperationalServicePicker
+              title="Choose a service for order entry"
+              buildHref={(serviceId) => `/ops/${serviceId}`}
+            />
+          </RequireAuth>
         }
       />
-      <Route path="/ops/:serviceId" element={<ServiceScopedRoute><OrderEntryPage /></ServiceScopedRoute>} />
+      <Route path="/ops/:serviceId" element={<RequireAuth authReady={authReady} session={session}><ServiceScopedRoute><OrderEntryPage /></ServiceScopedRoute></RequireAuth>} />
       <Route path="/order" element={<CustomerOrderPage />} />
       <Route path="/order/location/:locationId" element={<CustomerLocationPage />} />
       <Route path="/order/service/:serviceId" element={<CustomerServicePage />} />
@@ -238,28 +361,34 @@ function App() {
       <Route
         path="/kds"
         element={
-          <OperationalServicePicker
-            title="Choose a service for KDS"
-            buildHref={(serviceId) => `/ops/${serviceId}/kds`}
-          />
+          <RequireAuth authReady={authReady} session={session}>
+            <OperationalServicePicker
+              title="Choose a service for KDS"
+              buildHref={(serviceId) => `/ops/${serviceId}/kds`}
+            />
+          </RequireAuth>
         }
       />
       <Route
         path="/kds-2"
         element={
-          <OperationalServicePicker
-            title="Choose a service for KDS 2"
-            buildHref={(serviceId) => `/ops/${serviceId}/kds-2`}
-          />
+          <RequireAuth authReady={authReady} session={session}>
+            <OperationalServicePicker
+              title="Choose a service for KDS 2"
+              buildHref={(serviceId) => `/ops/${serviceId}/kds-2`}
+            />
+          </RequireAuth>
         }
       />
       <Route
         path="/expeditor"
         element={
-          <OperationalServicePicker
-            title="Choose a service for Expeditor"
-            buildHref={(serviceId) => `/expeditor/${serviceId}`}
-          />
+          <RequireAuth authReady={authReady} session={session}>
+            <OperationalServicePicker
+              title="Choose a service for Expeditor"
+              buildHref={(serviceId) => `/expeditor/${serviceId}`}
+            />
+          </RequireAuth>
         }
       />
       <Route
@@ -271,23 +400,23 @@ function App() {
           />
         }
       />
-      <Route path="/ops/:serviceId/kds" element={<ServiceScopedRoute><KdsPage /></ServiceScopedRoute>} />
-      <Route path="/ops/:serviceId/kds-2" element={<ServiceScopedRoute><Kds2Page /></ServiceScopedRoute>} />
-      <Route path="/ops/:serviceId/expeditor" element={<LegacyExpeditorRedirect />} />
-      <Route path="/expeditor/:serviceId" element={<ServiceScopedRoute><ExpeditorPage /></ServiceScopedRoute>} />
+      <Route path="/ops/:serviceId/kds" element={<RequireAuth authReady={authReady} session={session}><ServiceScopedRoute><KdsPage /></ServiceScopedRoute></RequireAuth>} />
+      <Route path="/ops/:serviceId/kds-2" element={<RequireAuth authReady={authReady} session={session}><ServiceScopedRoute><Kds2Page /></ServiceScopedRoute></RequireAuth>} />
+      <Route path="/ops/:serviceId/expeditor" element={<RequireAuth authReady={authReady} session={session}><LegacyExpeditorRedirect /></RequireAuth>} />
+      <Route path="/expeditor/:serviceId" element={<RequireAuth authReady={authReady} session={session}><ServiceScopedRoute><ExpeditorPage /></ServiceScopedRoute></RequireAuth>} />
       <Route path="/ops/:serviceId/board" element={<ServiceScopedRoute><CustomerBoardPage /></ServiceScopedRoute>} />
-      <Route path="/admin" element={<AdminPage />} />
-      <Route path="/admin/locations" element={<LocationsListPage />} />
-      <Route path="/admin/locations/new" element={<LocationNewPage />} />
-      <Route path="/admin/locations/:locationId" element={<LocationEditPage />} />
-      <Route path="/admin/services" element={<ServicesListPage />} />
-      <Route path="/admin/services/new" element={<ServiceNewPage />} />
-      <Route path="/admin/services/:serviceId" element={<ServiceEditPage />} />
-      <Route path="/admin/menu" element={<MenuAdminPage />} />
-      <Route path="/admin/discounts" element={<DiscountCodesAdminPage />} />
-      <Route path="/admin/ingredients" element={<IngredientsAdminPage />} />
-      <Route path="/admin/modifiers" element={<ModifiersAdminPage />} />
-      <Route path="/payments/:paymentId" element={<PaymentPage />} />
+      <Route path="/admin" element={<RequireAuth authReady={authReady} session={session}><AdminPage /></RequireAuth>} />
+      <Route path="/admin/locations" element={<RequireAuth authReady={authReady} session={session}><LocationsListPage /></RequireAuth>} />
+      <Route path="/admin/locations/new" element={<RequireAuth authReady={authReady} session={session}><LocationNewPage /></RequireAuth>} />
+      <Route path="/admin/locations/:locationId" element={<RequireAuth authReady={authReady} session={session}><LocationEditPage /></RequireAuth>} />
+      <Route path="/admin/services" element={<RequireAuth authReady={authReady} session={session}><ServicesListPage /></RequireAuth>} />
+      <Route path="/admin/services/new" element={<RequireAuth authReady={authReady} session={session}><ServiceNewPage /></RequireAuth>} />
+      <Route path="/admin/services/:serviceId" element={<RequireAuth authReady={authReady} session={session}><ServiceEditPage /></RequireAuth>} />
+      <Route path="/admin/menu" element={<RequireAuth authReady={authReady} session={session}><MenuAdminPage /></RequireAuth>} />
+      <Route path="/admin/discounts" element={<RequireAuth authReady={authReady} session={session}><DiscountCodesAdminPage /></RequireAuth>} />
+      <Route path="/admin/ingredients" element={<RequireAuth authReady={authReady} session={session}><IngredientsAdminPage /></RequireAuth>} />
+      <Route path="/admin/modifiers" element={<RequireAuth authReady={authReady} session={session}><ModifiersAdminPage /></RequireAuth>} />
+      <Route path="/payments/:paymentId" element={<RequireAuth authReady={authReady} session={session}><PaymentPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/ops" replace />} />
     </Routes>
   )
