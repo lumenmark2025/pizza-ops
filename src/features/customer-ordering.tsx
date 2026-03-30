@@ -443,51 +443,6 @@ function ServiceStatusBadge({
   return <Badge variant={status === 'live' ? 'green' : 'blue'}>{status === 'live' ? 'Ordering open' : 'Pre-orders open'}</Badge>
 }
 
-function getOrdinalDay(day: number) {
-  const remainder10 = day % 10
-  const remainder100 = day % 100
-
-  if (remainder10 === 1 && remainder100 !== 11) return `${day}st`
-  if (remainder10 === 2 && remainder100 !== 12) return `${day}nd`
-  if (remainder10 === 3 && remainder100 !== 13) return `${day}rd`
-  return `${day}th`
-}
-
-function formatFriendlyServiceWindow(startIso: string, endIso: string) {
-  const start = new Date(startIso)
-  const end = new Date(endIso)
-  const now = new Date()
-  const today = new Date(now)
-  today.setHours(0, 0, 0, 0)
-  const tomorrow = new Date(today)
-  tomorrow.setDate(today.getDate() + 1)
-  const startDay = new Date(start)
-  startDay.setHours(0, 0, 0, 0)
-
-  const timeFormatter = new Intl.DateTimeFormat('en-GB', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-
-  const compactTime = (value: Date) =>
-    timeFormatter
-      .format(value)
-      .replace(':00', '')
-      .replace(' am', 'am')
-      .replace(' pm', 'pm')
-
-  let dayLabel = `${start.toLocaleString('en-GB', { month: 'short' })} ${getOrdinalDay(start.getDate())}`
-
-  if (startDay.getTime() === today.getTime()) {
-    dayLabel = 'Today'
-  } else if (startDay.getTime() === tomorrow.getTime()) {
-    dayLabel = 'Tomorrow'
-  }
-
-  return `${dayLabel} ${compactTime(start)} - ${compactTime(end)}`
-}
-
 function MenuItemMedia({
   imageUrl,
   name,
@@ -788,27 +743,27 @@ export function CustomerOrderPage() {
           return (
             <Link key={service.id} to={`/order/service/${service.id}`} className="block rounded-[28px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:bg-white sm:p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="[&>p:last-of-type]:hidden">
-                  <h2 className="font-display text-3xl font-bold">{location?.name ?? service.locationName}</h2>
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">
+                    {location?.name ?? service.locationName}
+                  </p>
+                  <h2 className="mt-2 font-display text-3xl font-bold">{service.name}</h2>
                   <p className="mt-2 text-sm text-slate-600">
                     {location?.addressLine1}
                     {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
-                  </p>
-                  <p className="mt-2 text-sm font-medium text-slate-700">
-                    {formatFriendlyServiceWindow(service.startTime, service.lastCollectionTime)}
                   </p>
                   <p className="mt-2 text-sm text-slate-500">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
                 </div>
                 <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
               </div>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                {service.acceptPublicOrders ? (
-                  <div />
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    {service.publicOrderClosureReason ?? 'Not currently accepting orders.'}
-                  </p>
-                )}
+                <p className="text-sm text-slate-500">
+                  {service.acceptPublicOrders
+                    ? service.status === 'live'
+                      ? 'Ordering is open now.'
+                      : 'Pre-orders are available.'
+                    : service.publicOrderClosureReason ?? 'Not currently accepting orders.'}
+                </p>
                 <Button variant="secondary" style={{ backgroundColor: branding.primaryColor, color: '#fff', borderColor: branding.primaryColor }}>
                   {branding.orderCtaLabel}
                 </Button>
@@ -843,11 +798,8 @@ export function CustomerLocationPage() {
           {services.map((service) => (
             <Link key={service.id} to={`/order/service/${service.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-white">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="[&>p:last-of-type]:hidden">
+                <div>
                   <p className="font-semibold">{service.name}</p>
-                  <p className="mt-1 text-sm font-medium text-slate-700">
-                    {formatFriendlyServiceWindow(service.startTime, service.lastCollectionTime)}
-                  </p>
                   <p className="mt-1 text-sm text-slate-500">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
                 </div>
                 <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
@@ -1035,15 +987,12 @@ export function CustomerServicePage() {
         <div className="grid gap-4">
           <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="[&>p:last-of-type]:hidden">
+              <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Collect from</p>
                 <h2 className="mt-2 font-display text-3xl font-bold">{location?.name ?? service.locationName}</h2>
                 <p className="mt-2 text-sm text-slate-600">
                   {location?.addressLine1}
                   {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
-                </p>
-                <p className="mt-2 text-sm font-medium text-slate-700">
-                  {formatFriendlyServiceWindow(service.startTime, service.lastCollectionTime)}
                 </p>
                 <p className="mt-2 text-sm text-slate-600">{service.date} · {service.startTime} to {service.lastCollectionTime}</p>
               </div>
