@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { LoaderCircle } from 'lucide-react'
-import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Session } from '@supabase/supabase-js'
 import { Card } from './components/ui/card'
 import { Button } from './components/ui/button'
@@ -145,14 +145,33 @@ function LegacyExpeditorRedirect() {
   return <Navigate to={`/expeditor/${serviceId}`} replace />
 }
 
-function LoginPage() {
+function LoginPage({
+  session,
+  authReady,
+}: {
+  session: Session | null
+  authReady: boolean
+}) {
   const location = useLocation()
+  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const redirectTo =
-    new URLSearchParams(location.search).get('redirect') || '/ops'
+    new URLSearchParams(location.search).get('redirect') || '/admin'
+
+  useEffect(() => {
+    if (!authReady || !session) {
+      return
+    }
+
+    setSubmitting(false)
+    setError(null)
+    setSuccessMessage('Sign-in successful. Redirecting…')
+    navigate(redirectTo, { replace: true })
+  }, [authReady, navigate, redirectTo, session])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -164,14 +183,24 @@ function LoginPage() {
 
     setSubmitting(true)
     setError(null)
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    setSuccessMessage(null)
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
     if (signInError) {
       setError(signInError.message)
+      setSubmitting(false)
+      return
     }
-    setSubmitting(false)
+
+    if (data.session) {
+      setSuccessMessage('Sign-in successful. Redirecting…')
+      navigate(redirectTo, { replace: true })
+      return
+    }
+
+    setSuccessMessage('Sign-in successful. Finalising session…')
   }
 
   return (
@@ -194,6 +223,11 @@ function LoginPage() {
           {error ? (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
+            </div>
+          ) : null}
+          {successMessage ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {successMessage}
             </div>
           ) : null}
           <Button className="bg-orange-500 text-white hover:bg-orange-400" disabled={submitting} type="submit">
@@ -237,6 +271,7 @@ function App() {
   const bootstrapStartedRef = useRef(false)
   const [authReady, setAuthReady] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
+  const isAuthRoute = location.pathname === '/login'
   const isStandaloneDisplayRoute = [/^\/ops\/[^/]+\/kds$/, /^\/ops\/[^/]+\/kds-2$/, /^\/ops\/[^/]+\/board$/].some((pattern) =>
     pattern.test(location.pathname),
   )
@@ -340,7 +375,7 @@ function App() {
           <Navigate to="/ops" replace />
         }
       />
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={<LoginPage authReady={authReady} session={session} />} />
       <Route
         path="/ops"
         element={
@@ -425,7 +460,7 @@ function App() {
     return <LoadingScreen message="Loading display state..." standalone />
   }
 
-  return location.pathname.startsWith('/order') || isStandaloneDisplayRoute ? routes : <AppShell>{routes}</AppShell>
+  return location.pathname.startsWith('/order') || isStandaloneDisplayRoute || isAuthRoute ? routes : <AppShell>{routes}</AppShell>
 }
 
 export default App
