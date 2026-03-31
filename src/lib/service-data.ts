@@ -308,6 +308,55 @@ export async function persistServiceToSupabase(service: Partial<ServiceConfig>) 
   return mapServiceRow(data as ServiceRow)
 }
 
+export async function deleteServiceFromSupabase(serviceId: string) {
+  ensureSupabase('Service delete')
+
+  const runtimeDelete = await supabase!
+    .from('service_runtime_state')
+    .delete()
+    .eq('service_id', serviceId)
+
+  if (runtimeDelete.error) {
+    throw new Error(`Service delete failed. ${runtimeDelete.error.message}`)
+  }
+
+  const slotsDelete = await supabase!
+    .from('service_slots')
+    .delete()
+    .eq('service_id', serviceId)
+
+  if (slotsDelete.error) {
+    throw new Error(`Service delete failed. ${slotsDelete.error.message}`)
+  }
+
+  const inventoryDelete = await supabase!
+    .from('service_inventory')
+    .delete()
+    .eq('service_id', serviceId)
+
+  if (inventoryDelete.error) {
+    throw new Error(`Service delete failed. ${inventoryDelete.error.message}`)
+  }
+
+  const ordersDelete = await supabase!
+    .from('orders')
+    .delete()
+    .eq('service_id', serviceId)
+
+  if (ordersDelete.error) {
+    throw new Error(`Service delete failed. ${ordersDelete.error.message}`)
+  }
+
+  const serviceDelete = await supabase!
+    .from('services')
+    .delete()
+    .eq('id', serviceId)
+
+  if (serviceDelete.error) {
+    throw new Error(`Service delete failed. ${serviceDelete.error.message}`)
+  }
+}
+
 async function selectIngredientsWithDefaults(): Promise<Array<{ id: string; default_stock_amount: number }>> {
   ensureSupabase('Ingredient defaults load')
 

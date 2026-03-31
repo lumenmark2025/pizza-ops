@@ -186,7 +186,10 @@ export function ServicesListPage() {
   const locations = usePizzaOpsStore((state) => state.locations)
   const duplicateService = usePizzaOpsStore((state) => state.duplicateService)
   const archiveService = usePizzaOpsStore((state) => state.archiveService)
+  const deleteServicePermanently = usePizzaOpsStore((state) => state.deleteServicePermanently)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const upcomingServices = useMemo(
     () =>
@@ -195,6 +198,7 @@ export function ServicesListPage() {
       ),
     [services],
   )
+  const deleteTarget = upcomingServices.find((entry) => entry.id === deleteTargetId) ?? null
 
   return (
     <div className="grid gap-4">
@@ -265,12 +269,68 @@ export function ServicesListPage() {
                   }}>
                     Cancel/archive
                   </Button>
+                  {entry.status === 'cancelled' ? (
+                    <Button
+                      className="border-rose-300 text-rose-700 hover:bg-rose-50"
+                      variant="outline"
+                      onClick={() => {
+                        setActionError(null)
+                        setDeleteTargetId(entry.id)
+                      }}
+                    >
+                      Delete permanently
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </Card>
           )
         })}
       </div>
+      {deleteTarget ? (
+        <>
+          <div className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => !isDeleting && setDeleteTargetId(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <Card className="w-full max-w-xl rounded-[28px] p-6 shadow-2xl">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-600">Destructive cleanup</p>
+              <h2 className="mt-2 font-display text-3xl font-bold">Delete service permanently?</h2>
+              <p className="mt-3 text-sm text-slate-600">
+                This will permanently remove the service and its linked operational data, including orders, inventory, and related records. This cannot be undone.
+              </p>
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                <p className="font-semibold text-slate-900">{deleteTarget.name}</p>
+                <p className="mt-1">{deleteTarget.date} · {deleteTarget.startTime} to {deleteTarget.endTime}</p>
+                <p className="mt-1">{locations.find((item) => item.id === deleteTarget.locationId)?.name ?? deleteTarget.locationName}</p>
+              </div>
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <Button variant="outline" disabled={isDeleting} onClick={() => setDeleteTargetId(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-rose-600 text-white hover:bg-rose-500"
+                  disabled={isDeleting}
+                  onClick={() => {
+                    setActionError(null)
+                    setIsDeleting(true)
+                    void deleteServicePermanently(deleteTarget.id, 'manager')
+                      .then(() => {
+                        setDeleteTargetId(null)
+                      })
+                      .catch((error) => {
+                        setActionError(error instanceof Error ? error.message : 'Permanent delete failed.')
+                      })
+                      .finally(() => {
+                        setIsDeleting(false)
+                      })
+                  }}
+                >
+                  {isDeleting ? 'Deleting…' : 'Delete permanently'}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

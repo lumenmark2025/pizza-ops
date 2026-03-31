@@ -28,6 +28,7 @@ import {
   loadOrdersForService,
   loadServiceInventoryFromSupabase,
   loadServicesFromSupabase,
+  deleteServiceFromSupabase,
   persistServiceInventoryQuantity,
   persistServiceToSupabase,
   seedServiceInventoryFromDefaults,
@@ -125,6 +126,7 @@ type StoreState = ServiceSnapshot & {
   refreshInventoryForService: (serviceId: string) => Promise<void>
   duplicateService: (serviceId: string, actor: string) => Promise<string | null>
   archiveService: (serviceId: string, actor: string) => Promise<void>
+  deleteServicePermanently: (serviceId: string, actor: string) => Promise<void>
   upsertIngredient: (ingredient: Ingredient, defaultQuantity: number, actor: string) => Promise<void>
   deleteIngredient: (ingredientId: string, actor: string) => Promise<void>
   setInventoryQuantity: (ingredientId: string, quantity: number, actor: string) => Promise<void>
@@ -2172,6 +2174,60 @@ export const usePizzaOpsStore = create<StoreState>()(
               ...state.activityLog,
             ],
           }))
+        },
+        deleteServicePermanently: async (serviceId, actor) => {
+          const current = get()
+          const target = current.services.find((entry) => entry.id === serviceId)
+          if (!target) {
+            return
+          }
+
+          if (target.status !== 'cancelled') {
+            throw new Error('Only cancelled services can be permanently deleted.')
+          }
+
+          await deleteServiceFromSupabase(serviceId)
+
+          commit((state) => {
+            const remainingServices = state.services.filter((entry) => entry.id !== serviceId)
+            const deletingActiveService = state.service.id === serviceId
+
+            return {
+              service: deletingActiveService
+                ? {
+                    ...state.service,
+                    ...(remainingServices[0] ?? {
+                      id: '',
+                      name: 'No active service',
+                      locationId: '',
+                      locationName: '',
+                      date: new Date().toISOString().slice(0, 10),
+                      status: 'draft' as const,
+                      acceptPublicOrders: false,
+                      publicOrderClosureReason: null,
+                      startTime: '17:00',
+                      endTime: '20:00',
+                      lastCollectionTime: '19:55',
+                      slotSizeMinutes: 5,
+                      pizzasPerSlot: 3,
+                      delayMinutes: 0,
+                      pausedUntil: null,
+                      pauseReason: null,
+                    }),
+                  }
+                : state.service,
+              services: remainingServices,
+              inventory: deletingActiveService ? [] : state.inventory,
+              orders: deletingActiveService ? [] : state.orders,
+              history: deletingActiveService ? [] : state.history,
+              payments: deletingActiveService ? [] : state.payments,
+              loyverseQueue: deletingActiveService ? [] : state.loyverseQueue,
+              activityLog: [
+                createActivity('service_updated', actor, `Deleted service ${target.name} permanently.`),
+                ...state.activityLog,
+              ],
+            }
+          })
         },
         upsertIngredient: async (ingredient, defaultQuantity, actor) => {
           const persistedIngredient = await persistIngredientToSupabase({
