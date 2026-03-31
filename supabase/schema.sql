@@ -7,6 +7,7 @@ create table if not exists locations (
   address_line_2 text,
   town_city text not null default '',
   postcode text not null default '',
+  ordering_phone text,
   notes text,
   active boolean not null default true,
   created_at timestamptz not null default now(),

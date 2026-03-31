@@ -9,6 +9,7 @@ type LocationRow = {
   address_line_2?: string | null
   town_city: string
   postcode: string
+  ordering_phone?: string | null
   notes?: string | null
   active?: boolean | null
 }
@@ -156,9 +157,26 @@ export function mapLocationRow(row: LocationRow): Location {
     addressLine2: row.address_line_2 ?? '',
     townCity: row.town_city,
     postcode: row.postcode,
+    orderingPhone: row.ordering_phone ?? '',
     notes: row.notes ?? '',
     active: row.active !== false,
   }
+}
+
+async function selectLocationsFromSupabase() {
+  const primary = await supabase!
+    .from('locations')
+    .select('id, name, address_line_1, address_line_2, town_city, postcode, ordering_phone, notes, active')
+    .order('name', { ascending: true })
+
+  if (!primary.error || !isMissingColumnError(primary.error, 'ordering_phone')) {
+    return primary
+  }
+
+  return supabase!
+    .from('locations')
+    .select('id, name, address_line_1, address_line_2, town_city, postcode, notes, active')
+    .order('name', { ascending: true })
 }
 
 export function mapServiceRow(row: ServiceRow): ServiceConfig {
@@ -187,10 +205,7 @@ export function mapServiceRow(row: ServiceRow): ServiceConfig {
 export async function loadLocationsFromSupabase() {
   ensureSupabase('Location load')
 
-  const { data, error } = await supabase!
-    .from('locations')
-    .select('id, name, address_line_1, address_line_2, town_city, postcode, notes, active')
-    .order('name', { ascending: true })
+  const { data, error } = await selectLocationsFromSupabase()
 
   if (error) {
     throw new Error(`Location load failed. ${error.message}`)
@@ -209,15 +224,37 @@ export async function persistLocationToSupabase(location: Partial<Location>) {
     address_line_2: location.addressLine2?.trim() || null,
     town_city: location.townCity?.trim() ?? '',
     postcode: location.postcode?.trim() ?? '',
+    ordering_phone: location.orderingPhone?.trim() || null,
     notes: location.notes?.trim() || null,
     active: location.active !== false,
   }
 
-  const { data, error } = await supabase!
+  const primary = await supabase!
     .from('locations')
     .upsert(payload)
-    .select('id, name, address_line_1, address_line_2, town_city, postcode, notes, active')
+    .select('id, name, address_line_1, address_line_2, town_city, postcode, ordering_phone, notes, active')
     .single()
+
+  const fallback =
+    primary.error && isMissingColumnError(primary.error, 'ordering_phone')
+      ? await supabase!
+          .from('locations')
+          .upsert({
+            ...(location.id && isUuidValue(location.id) ? { id: location.id } : {}),
+            name: location.name?.trim() ?? '',
+            address_line_1: location.addressLine1?.trim() ?? '',
+            address_line_2: location.addressLine2?.trim() || null,
+            town_city: location.townCity?.trim() ?? '',
+            postcode: location.postcode?.trim() ?? '',
+            notes: location.notes?.trim() || null,
+            active: location.active !== false,
+          })
+          .select('id, name, address_line_1, address_line_2, town_city, postcode, notes, active')
+          .single()
+      : null
+
+  const data = (fallback ?? primary).data
+  const error = (fallback ?? primary).error
 
   if (error || !data) {
     throw new Error(`Location save failed. ${error?.message ?? 'Unknown Supabase error.'}`)

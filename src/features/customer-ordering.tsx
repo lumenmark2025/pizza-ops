@@ -492,11 +492,29 @@ function isGlutenFreeBaseModifierName(name: string) {
   return normalized.includes('gluten free')
 }
 
+function getCustomerLocationAddress(location?: Location | null) {
+  if (!location) {
+    return null
+  }
+
+  const parts = [
+    location.addressLine1?.trim(),
+    location.addressLine2?.trim(),
+    location.townCity?.trim(),
+    location.postcode?.trim(),
+  ].filter(Boolean)
+
+  return parts.length ? parts.join(', ') : null
+}
+
+function getCustomerOrderingPhone(location?: Location | null) {
+  const phone = location?.orderingPhone?.trim()
+  return phone?.length ? phone : null
+}
+
 function getCustomerServiceCardDisplay(service: ServiceConfig, location?: Location) {
   const title = location?.name?.trim() || service.locationName?.trim() || service.name?.trim() || 'Collection service'
-  const locationLine = location
-    ? `${location.addressLine1}${location.addressLine2 ? `, ${location.addressLine2}` : ''}, ${location.townCity} ${location.postcode}`
-    : service.locationName?.trim() || null
+  const locationLine = getCustomerLocationAddress(location) || service.locationName?.trim() || null
 
   return {
     title,
@@ -869,10 +887,8 @@ export function CustomerLocationPage() {
   return (
     <CustomerShell eyebrow="Choose Service" title={location.name}>
       <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
-        <p className="text-sm text-slate-600">
-          {location.addressLine1}
-          {location.addressLine2 ? `, ${location.addressLine2}` : ''}, {location.townCity} {location.postcode}
-        </p>
+        {getCustomerLocationAddress(location) ? <p className="text-sm text-slate-600">{getCustomerLocationAddress(location)}</p> : null}
+        {getCustomerOrderingPhone(location) ? <p className="mt-2 text-sm text-slate-600">Order by phone: {getCustomerOrderingPhone(location)}</p> : null}
         <div className="mt-5 grid gap-3">
           {services.map((service) => {
             const display = getCustomerServiceCardDisplay(service, location)
@@ -1073,6 +1089,7 @@ export function CustomerServicePage() {
           <div className="min-w-0">
             <p className="text-sm text-slate-600">{serviceDisplay.title}</p>
             {serviceDisplay.locationLine ? <p className="mt-1 text-sm text-slate-600">{serviceDisplay.locationLine}</p> : null}
+            {getCustomerOrderingPhone(location) ? <p className="mt-1 text-sm text-slate-600">Order by phone: {getCustomerOrderingPhone(location)}</p> : null}
             <p className="mt-1 text-sm text-slate-600">{serviceDisplay.dateTime}</p>
           </div>
           <ServiceStatusBadge acceptPublicOrders={service.acceptPublicOrders} status={service.status} />
@@ -1473,10 +1490,8 @@ export function CustomerCheckoutPage() {
               <Button variant="outline">Back to menu</Button>
             </Link>
           </div>
-          <p className="mt-3 text-sm text-slate-600">
-            {location?.addressLine1}
-            {location?.addressLine2 ? `, ${location.addressLine2}` : ''}, {location?.townCity} {location?.postcode}
-          </p>
+          {getCustomerLocationAddress(location) ? <p className="mt-3 text-sm text-slate-600">{getCustomerLocationAddress(location)}</p> : null}
+          {getCustomerOrderingPhone(location) ? <p className="mt-2 text-sm text-slate-600">Order by phone: {getCustomerOrderingPhone(location)}</p> : null}
           <div className="mt-5 grid gap-3">
             <Input placeholder="Your name" value={draft.customerName} onChange={(event) => patchDraft({ customerName: event.target.value })} />
             <Input placeholder="Mobile number (optional)" value={draft.mobile} onChange={(event) => patchDraft({ mobile: event.target.value })} />

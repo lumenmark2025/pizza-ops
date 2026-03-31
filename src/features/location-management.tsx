@@ -53,6 +53,14 @@ function LocationForm({
           <Input value={form.postcode} onChange={(event) => setForm((current) => ({ ...current, postcode: event.target.value }))} />
         </label>
         <label className="grid gap-2 text-sm sm:col-span-2">
+          <span className="font-semibold text-slate-600">Ordering phone number</span>
+          <Input
+            value={form.orderingPhone ?? ''}
+            onChange={(event) => setForm((current) => ({ ...current, orderingPhone: event.target.value }))}
+            placeholder="Phone number shown on the customer ordering screen"
+          />
+        </label>
+        <label className="grid gap-2 text-sm sm:col-span-2">
           <span className="font-semibold text-slate-600">Notes</span>
           <Textarea value={form.notes ?? ''} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
         </label>
@@ -105,6 +113,7 @@ export function LocationsListPage() {
                 <p className="mt-2 text-sm text-slate-500">{location.addressLine1}</p>
                 {location.addressLine2 ? <p className="text-sm text-slate-500">{location.addressLine2}</p> : null}
                 <p className="text-sm text-slate-500">{location.townCity} {location.postcode}</p>
+                {location.orderingPhone ? <p className="mt-2 text-sm text-slate-500">{location.orderingPhone}</p> : null}
                 <p className="mt-2 text-sm text-slate-500">
                   {services.filter((entry) => entry.locationId === location.id).length} linked services
                 </p>
@@ -134,6 +143,7 @@ export function LocationNewPage() {
         addressLine2: '',
         townCity: '',
         postcode: '',
+        orderingPhone: '',
         notes: '',
         active: true,
       }}

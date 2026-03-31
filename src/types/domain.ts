@@ -45,6 +45,7 @@ export type Location = {
   addressLine2?: string
   townCity: string
   postcode: string
+  orderingPhone?: string
   notes?: string
   active: boolean
 }
