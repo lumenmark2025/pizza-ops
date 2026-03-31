@@ -460,8 +460,8 @@ export function ServiceEditPanel() {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <div className="grid gap-4">
+    <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr] xl:items-start">
+      <div className="grid gap-4 self-start content-start">
         <div className="grid gap-4 lg:grid-cols-3">
           <StatPanel icon={AlarmClockCheck} title="Service Window" value={`${service.startTime}-${service.endTime}`} detail={`${location?.name ?? service.locationName} - Last slot ${service.lastCollectionTime}`} />
           <StatPanel icon={TimerReset} title="Delay" value={`${service.delayMinutes} mins`} detail={service.pausedUntil ? `Paused until ${formatTime(service.pausedUntil)}` : titleCase(service.status)} />
