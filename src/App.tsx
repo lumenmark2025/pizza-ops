@@ -265,12 +265,14 @@ function RequireAuth({
 
 function App() {
   const location = useLocation()
+  const navigate = useNavigate()
   const setOnlineStatus = usePizzaOpsStore((state) => state.setOnlineStatus)
   const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
   const activeServiceId = usePizzaOpsStore((state) => state.service.id)
   const bootstrapStartedRef = useRef(false)
   const [authReady, setAuthReady] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
   const isAuthRoute = location.pathname === '/login'
   const isStandaloneDisplayRoute = [/^\/ops\/[^/]+\/kds$/, /^\/ops\/[^/]+\/kds-2$/, /^\/ops\/[^/]+\/board$/].some((pattern) =>
     pattern.test(location.pathname),
@@ -305,6 +307,20 @@ function App() {
       subscription.unsubscribe()
     }
   }, [])
+
+  async function handleLogout() {
+    if (!supabase) {
+      setSession(null)
+      navigate('/login', { replace: true })
+      return
+    }
+
+    setLoggingOut(true)
+    await supabase.auth.signOut()
+    setSession(null)
+    setLoggingOut(false)
+    navigate('/login', { replace: true })
+  }
 
   useEffect(() => {
     const onOnline = () => setOnlineStatus(true)
@@ -460,7 +476,15 @@ function App() {
     return <LoadingScreen message="Loading display state..." standalone />
   }
 
-  return location.pathname.startsWith('/order') || isStandaloneDisplayRoute || isAuthRoute ? routes : <AppShell>{routes}</AppShell>
+  return location.pathname.startsWith('/order') || isStandaloneDisplayRoute || isAuthRoute ? routes : (
+    <AppShell
+      currentUserEmail={session?.user.email ?? null}
+      loggingOut={loggingOut}
+      onLogout={() => void handleLogout()}
+    >
+      {routes}
+    </AppShell>
+  )
 }
 
 export default App

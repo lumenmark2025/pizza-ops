@@ -97,7 +97,16 @@ function isNavItemActive(pathname: string, href: string) {
   return pathname.startsWith(`${href}/`)
 }
 
-export function AppShell({ children }: PropsWithChildren) {
+export function AppShell({
+  children,
+  currentUserEmail,
+  onLogout,
+  loggingOut = false,
+}: PropsWithChildren<{
+  currentUserEmail?: string | null
+  onLogout?: () => void
+  loggingOut?: boolean
+}>) {
   const location = useLocation()
   const isOnline = usePizzaOpsStore((state) => state.isOnline)
   const remoteReady = usePizzaOpsStore((state) => state.remoteReady)
@@ -156,6 +165,16 @@ export function AppShell({ children }: PropsWithChildren) {
                 ) : (
                   <MetricChip icon={LoaderCircle} label="Safe mode" tone="warn" />
                 )}
+                {currentUserEmail ? (
+                  <div className="rounded-full bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
+                    {currentUserEmail}
+                  </div>
+                ) : null}
+                {onLogout ? (
+                  <Button variant="outline" onClick={onLogout} disabled={loggingOut}>
+                    {loggingOut ? 'Signing out…' : 'Logout'}
+                  </Button>
+                ) : null}
                 <Button
                   variant="outline"
                   className="h-11 w-11 rounded-xl p-0"
