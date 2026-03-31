@@ -248,6 +248,12 @@ function TicketCard({
           {order.pagerNumber ? <Badge variant="slate">Pager {order.pagerNumber}</Badge> : null}
         </div>
       </div>
+      <div className="mt-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-orange-700">Collection Time</p>
+        <p className="mt-1 font-display text-3xl font-bold leading-none text-orange-950 sm:text-4xl">
+          {formatTime(order.promisedTime)}
+        </p>
+      </div>
       <div className={cn(sizing.infoGap, 'flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-600')}>
         <span>{formatTime(order.createdAt)} taken</span>
         <span>/</span>

@@ -702,17 +702,6 @@ export function ServiceEditPanel() {
 
       <div className="grid gap-4">
         <Card className="p-4 sm:p-5">
-          <h2 className="font-display text-2xl font-bold">Global menu and modifiers</h2>
-          <p className="mt-2 text-sm text-slate-500">Menu, ingredients, and modifiers are managed globally outside this service.</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Link to="/admin/menu"><Button variant="secondary">Open menu</Button></Link>
-            <Link to="/admin/discounts"><Button variant="secondary">Open discounts</Button></Link>
-            <Link to="/admin/ingredients"><Button variant="secondary">Open ingredients</Button></Link>
-            <Link to="/admin/modifiers"><Button variant="secondary">Open modifiers</Button></Link>
-          </div>
-        </Card>
-
-        <Card className="p-4 sm:p-5">
           <h2 className="font-display text-2xl font-bold">Manual reslot and pager desk</h2>
           <div className="mt-4 grid gap-3">
             <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={moveOrderId} onChange={(event) => setMoveOrderId(event.target.value)}>{orders.map((order) => <option key={order.id} value={order.id}>{order.reference} - {order.customerId}</option>)}</select>
@@ -737,6 +726,21 @@ export function ServiceEditPanel() {
                   })
                 }}>Assign pager</Button>
               </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-xl font-bold">Global menu and modifiers</h2>
+              <p className="mt-1 text-sm text-slate-500">Global configuration lives outside this service.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link to="/admin/menu"><Button size="sm" variant="secondary">Menu</Button></Link>
+              <Link to="/admin/discounts"><Button size="sm" variant="secondary">Discounts</Button></Link>
+              <Link to="/admin/ingredients"><Button size="sm" variant="secondary">Ingredients</Button></Link>
+              <Link to="/admin/modifiers"><Button size="sm" variant="secondary">Modifiers</Button></Link>
             </div>
           </div>
         </Card>

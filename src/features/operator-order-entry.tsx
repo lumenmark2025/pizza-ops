@@ -92,6 +92,7 @@ export function OrderEntryPage() {
   const [orderDiscountDraft, setOrderDiscountDraft] = useState<AppliedDiscountSummary | null>(null)
   const [draftOrderId, setDraftOrderId] = useState<string | null>(null)
   const [pendingTerminalOrderId, setPendingTerminalOrderId] = useState<string | null>(null)
+  const [showEmailSuggestions, setShowEmailSuggestions] = useState(false)
 
   const availability = useMemo(
     () => getMenuAvailability(inventory, recipes, menuItems, orders),
@@ -195,11 +196,24 @@ export function OrderEntryPage() {
     }
   }, [searchParams])
 
+  useEffect(() => {
+    if (!emailSuggestions.length) {
+      setShowEmailSuggestions(false)
+    }
+  }, [emailSuggestions.length])
+
   function addToBasket(menuItemId: string) {
     setBasket((current) => [
       ...current,
       { id: `${menuItemId}_${current.length + 1}`, menuItemId, quantity: 1, modifiers: [], progressCount: 0 },
     ])
+  }
+
+  function applySuggestedCustomer(customer: (typeof customers)[number]) {
+    setEmail(customer.email ?? '')
+    setCustomerName(customer.name)
+    setMobile(customer.mobile ?? '')
+    setShowEmailSuggestions(false)
   }
 
   function updateQuantity(itemId: string, quantity: number) {
@@ -741,18 +755,29 @@ export function OrderEntryPage() {
           <Input placeholder="Customer name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
           <Input placeholder="Mobile (optional)" value={mobile} onChange={(event) => setMobile(event.target.value)} />
           <div className="relative">
-            <Input placeholder="Email (optional)" value={email} onChange={(event) => setEmail(event.target.value)} />
-            {emailSuggestions.length ? (
+            <Input
+              placeholder="Email (optional)"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value)
+                setShowEmailSuggestions(true)
+              }}
+              onFocus={() => setShowEmailSuggestions(emailSuggestions.length > 0)}
+              onBlur={() => {
+                window.setTimeout(() => setShowEmailSuggestions(false), 120)
+              }}
+            />
+            {showEmailSuggestions && emailSuggestions.length ? (
               <div className="absolute z-20 mt-2 w-full rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
                 {emailSuggestions.map((customer) => (
                   <button
                     key={customer.id}
                     className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-50"
-                    onClick={() => {
-                      setEmail(customer.email ?? '')
-                      setCustomerName(customer.name)
-                      setMobile(customer.mobile ?? '')
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                      applySuggestedCustomer(customer)
                     }}
+                    onClick={() => applySuggestedCustomer(customer)}
                   >
                     <span className="font-medium text-slate-900">{customer.email}</span>
                     <span className="text-slate-500">{customer.name}</span>
