@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Image as ImageIcon } from 'lucide-react'
 import { ChilliRating } from '../components/chilli-rating'
 import { Badge } from '../components/ui/badge'
@@ -14,7 +14,7 @@ import {
   normalizeMenuItem,
   sortMenuItems,
 } from '../lib/menu'
-import { supabaseConfigError, supabaseUrl } from '../lib/supabase'
+import { getSupabaseClientError, supabase, supabaseConfigError, supabaseUrl } from '../lib/supabase'
 import { currency } from '../lib/utils'
 import { usePizzaOpsStore } from '../store/usePizzaOpsStore'
 import type { MenuItem, MenuItemRecipe } from '../types/domain'
@@ -22,6 +22,9 @@ import type { MenuItem, MenuItemRecipe } from '../types/domain'
 type RecipeDraftRow = MenuItemRecipe & {
   clientId: string
 }
+
+const MENU_ITEM_IMAGE_BUCKET = 'menu-item-images'
+const MAX_MENU_IMAGE_BYTES = 5 * 1024 * 1024
 
 function emptyDraft(): MenuItem {
   return normalizeMenuItem({
@@ -109,6 +112,10 @@ export function MenuAdminPage() {
   const [menuItemDraft, setMenuItemDraft] = useState<MenuItem>(sortedMenuItems[0] ?? emptyDraft())
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string>('Idle')
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadStatus, setUploadStatus] = useState<string>('No upload in progress.')
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const nextRecipeClientId = useRef(0)
   const getNextRecipeClientId = () => {
     nextRecipeClientId.current += 1
@@ -133,6 +140,8 @@ export function MenuAdminPage() {
     setMenuRecipeDraft([])
     setSaveError(null)
     setSaveStatus('Idle')
+    setUploadError(null)
+    setUploadStatus('No upload in progress.')
   }
 
   function loadMenuItem(item: MenuItem | null, sourceRecipes = recipes) {
@@ -147,6 +156,65 @@ export function MenuAdminPage() {
     setMenuRecipeDraft(buildRecipeDraft(sourceRecipes, normalizedItem.id, getNextRecipeClientId))
     setSaveError(null)
     setSaveStatus('Idle')
+    setUploadError(null)
+    setUploadStatus('No upload in progress.')
+  }
+
+  async function uploadMenuItemImage(file: File) {
+    if (!supabase) {
+      throw new Error(getSupabaseClientError('Menu item image upload'))
+    }
+
+    if (!file.type.startsWith('image/')) {
+      throw new Error('Please choose an image file.')
+    }
+
+    if (file.size > MAX_MENU_IMAGE_BYTES) {
+      throw new Error('Please choose an image smaller than 5 MB.')
+    }
+
+    const extension = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() ?? 'jpg' : 'jpg'
+    const objectPath = `menu-items/${Date.now()}-${crypto.randomUUID()}.${extension}`
+
+    const { error } = await supabase.storage.from(MENU_ITEM_IMAGE_BUCKET).upload(objectPath, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || undefined,
+    })
+
+    if (error) {
+      throw new Error(`Image upload failed. ${error.message}`)
+    }
+
+    const { data } = supabase.storage.from(MENU_ITEM_IMAGE_BUCKET).getPublicUrl(objectPath)
+    if (!data.publicUrl) {
+      throw new Error('Image upload failed. Public URL was not returned.')
+    }
+
+    return data.publicUrl
+  }
+
+  async function handleImageFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) {
+      return
+    }
+
+    try {
+      setUploadError(null)
+      setIsUploadingImage(true)
+      setUploadStatus(`Uploading ${file.name}...`)
+      const publicUrl = await uploadMenuItemImage(file)
+      setMenuItemDraft((current) => normalizeMenuItem({ ...current, imageUrl: publicUrl }))
+      setUploadStatus(`Uploaded ${file.name}.`)
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Image upload failed.')
+      setUploadStatus('Image upload failed.')
+    } finally {
+      setIsUploadingImage(false)
+    }
   }
 
   async function saveMenuItem() {
@@ -434,6 +502,42 @@ export function MenuAdminPage() {
                   <span>{menuItemDraft.active === false ? 'Hidden from customer and order-entry menus' : 'Visible on customer and order-entry menus'}</span>
                 </div>
               </label>
+            </div>
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingImage}
+                >
+                  {menuItemDraft.imageUrl ? 'Replace image' : 'Upload image'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setMenuItemDraft((current) => normalizeMenuItem({ ...current, imageUrl: null }))
+                    setUploadError(null)
+                    setUploadStatus('Image cleared from this menu item.')
+                  }}
+                  disabled={!menuItemDraft.imageUrl}
+                >
+                  Remove image
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageFileChange}
+                />
+              </div>
+              <p className="text-slate-500">
+                Choose a photo from desktop or mobile. On phones, this uses the normal gallery/camera picker when available.
+              </p>
+              <p className="text-slate-500">{uploadStatus}</p>
+              {uploadError ? <p className="font-medium text-rose-600">{uploadError}</p> : null}
             </div>
             <label className="grid gap-2 text-sm">
               <span className="font-semibold text-slate-600">Loyverse item ID</span>
