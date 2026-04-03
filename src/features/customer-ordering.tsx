@@ -26,6 +26,7 @@ import {
   resolveMenuCategorySlug,
   sortMenuItems,
 } from '../lib/menu'
+import { getDomainContext } from '../lib/domain-context'
 import { getOrderItemsTotal } from '../lib/order-calculations'
 import { getMenuAvailability } from '../lib/slot-engine'
 import { addMinutes, formatTime } from '../lib/time'
@@ -1553,6 +1554,7 @@ export function CustomerCheckoutPage() {
 }
 
 export function CustomerOrderConfirmationPage() {
+  const domainContext = getDomainContext()
   const { orderId } = useParams()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -1637,9 +1639,11 @@ export function CustomerOrderConfirmationPage() {
           <Link to="/order">
             <Button variant="secondary">Start another order</Button>
           </Link>
-          <Link to="/board">
-            <Button>View live order board</Button>
-          </Link>
+          {domainContext.appMode !== 'customer' ? (
+            <Link to="/board">
+              <Button>View live order board</Button>
+            </Link>
+          ) : null}
         </div>
       </Card>
     </CustomerShell>

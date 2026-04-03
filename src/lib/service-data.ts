@@ -149,6 +149,18 @@ function normalizePaymentMethod(value?: string | null): Order['paymentMethod'] {
   return (value as Order['paymentMethod']) ?? null
 }
 
+function normalizeOrderSource(value?: string | null): Order['source'] {
+  if (value === 'online') {
+    return 'web'
+  }
+
+  if (value === 'walkup' || value === 'phone' || value === 'text_message' || value === 'whatsapp' || value === 'messenger' || value === 'manual' || value === 'web') {
+    return value
+  }
+
+  return 'walkup'
+}
+
 export function mapLocationRow(row: LocationRow): Location {
   return {
     id: row.id,
@@ -599,7 +611,7 @@ export async function loadOrdersForService(serviceId: string) {
       customerMobile: row.customer_mobile ?? undefined,
       customerEmail: row.customer_email ?? undefined,
       authUserId: row.auth_user_id ?? null,
-      source: row.source,
+      source: normalizeOrderSource(row.source),
       status: row.status,
       promisedTime: row.promised_collection_time ?? row.created_at,
       slotAllocations: [],

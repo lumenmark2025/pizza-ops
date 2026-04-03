@@ -588,6 +588,15 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
     throw new Error('Order persistence is unavailable because Supabase is not configured.')
   }
 
+  const persistedSource =
+    order.source === 'web'
+      ? 'online'
+      : order.source === 'walkup'
+        ? 'walkup'
+        : order.source === 'manual'
+          ? 'walkup'
+          : 'phone'
+
   const orderWrite = await supabase.from('orders').upsert({
     id: order.id,
     service_id: serviceId,
@@ -596,7 +605,7 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
     customer_mobile: order.customerMobile,
     customer_email: order.customerEmail,
     auth_user_id: order.authUserId,
-    source: order.source,
+    source: persistedSource,
     status: order.status,
     promised_collection_time: order.promisedTime,
     subtotal_pence: Math.round(Number(order.subtotalAmount ?? 0) * 100),

@@ -22,6 +22,7 @@ import { CustomerBoardPage, ExpeditorPage, Kds2Page, KdsPage, PaymentPage } from
 import { OrderEntryPage } from './features/operator-order-entry'
 import { AppShell } from './features/operator-shell'
 import { ServiceEditPage, ServiceNewPage, ServicesListPage } from './features/service-management'
+import { getDomainContext, type AppMode, type DomainContext } from './lib/domain-context'
 import { SAFE_MODE } from './lib/runtime-flags'
 import { supabase, supabaseConfigError } from './lib/supabase'
 import { usePizzaOpsStore } from './store/usePizzaOpsStore'
@@ -243,13 +244,19 @@ function LoginPage({
 function RequireAuth({
   session,
   authReady,
+  domainContext,
   children,
 }: {
   session: Session | null
   authReady: boolean
+  domainContext: DomainContext
   children: ReactNode
 }) {
   const location = useLocation()
+
+  if (domainContext.appMode === 'customer') {
+    return <Navigate to="/order" replace />
+  }
 
   if (!authReady) {
     return <LoadingScreen message="Checking sign-in…" />
@@ -263,6 +270,46 @@ function RequireAuth({
   return <>{children}</>
 }
 
+function getDomainHomePath(domainContext: DomainContext) {
+  return domainContext.appMode === 'customer' ? '/order' : '/ops'
+}
+
+function DomainRootRoute({ domainContext }: { domainContext: DomainContext }) {
+  return <Navigate to={getDomainHomePath(domainContext)} replace />
+}
+
+function DomainLoginRoute({
+  domainContext,
+  authReady,
+  session,
+}: {
+  domainContext: DomainContext
+  authReady: boolean
+  session: Session | null
+}) {
+  if (domainContext.appMode === 'customer') {
+    return <Navigate to="/order" replace />
+  }
+
+  return <LoginPage authReady={authReady} session={session} />
+}
+
+function DomainRouteGuard({
+  domainContext,
+  allow,
+  children,
+}: {
+  domainContext: DomainContext
+  allow: AppMode[]
+  children: ReactNode
+}) {
+  if (domainContext.appMode === 'mixed' || domainContext.appMode === 'unknown' || allow.includes(domainContext.appMode)) {
+    return <>{children}</>
+  }
+
+  return <Navigate to={getDomainHomePath(domainContext)} replace />
+}
+
 function App() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -273,6 +320,7 @@ function App() {
   const [authReady, setAuthReady] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
+  const domainContext = getDomainContext()
   const isAuthRoute = location.pathname === '/login'
   const isStandaloneDisplayRoute = [/^\/ops\/[^/]+\/kds$/, /^\/ops\/[^/]+\/kds-2$/, /^\/ops\/[^/]+\/board$/].some((pattern) =>
     pattern.test(location.pathname),
@@ -388,87 +436,97 @@ function App() {
       <Route
         path="/"
         element={
-          <Navigate to="/ops" replace />
+          <DomainRootRoute domainContext={domainContext} />
         }
       />
-      <Route path="/login" element={<LoginPage authReady={authReady} session={session} />} />
+      <Route path="/login" element={<DomainLoginRoute authReady={authReady} domainContext={domainContext} session={session} />} />
       <Route
         path="/ops"
         element={
-          <RequireAuth authReady={authReady} session={session}>
-            <OperationalServicePicker
-              title="Choose a service for order entry"
-              buildHref={(serviceId) => `/ops/${serviceId}`}
-            />
-          </RequireAuth>
+          <DomainRouteGuard allow={['operator']} domainContext={domainContext}>
+            <RequireAuth authReady={authReady} domainContext={domainContext} session={session}>
+              <OperationalServicePicker
+                title="Choose a service for order entry"
+                buildHref={(serviceId) => `/ops/${serviceId}`}
+              />
+            </RequireAuth>
+          </DomainRouteGuard>
         }
       />
-      <Route path="/ops/:serviceId" element={<RequireAuth authReady={authReady} session={session}><ServiceScopedRoute><OrderEntryPage /></ServiceScopedRoute></RequireAuth>} />
-      <Route path="/order" element={<CustomerOrderPage />} />
-      <Route path="/order/location/:locationId" element={<CustomerLocationPage />} />
-      <Route path="/order/service/:serviceId" element={<CustomerServicePage />} />
-      <Route path="/order/checkout" element={<CustomerCheckoutPage />} />
-      <Route path="/order/confirmation/:orderId" element={<CustomerOrderConfirmationPage />} />
+      <Route path="/ops/:serviceId" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><ServiceScopedRoute><OrderEntryPage /></ServiceScopedRoute></RequireAuth></DomainRouteGuard>} />
+      <Route path="/order" element={<DomainRouteGuard allow={['customer']} domainContext={domainContext}><CustomerOrderPage /></DomainRouteGuard>} />
+      <Route path="/order/location/:locationId" element={<DomainRouteGuard allow={['customer']} domainContext={domainContext}><CustomerLocationPage /></DomainRouteGuard>} />
+      <Route path="/order/service/:serviceId" element={<DomainRouteGuard allow={['customer']} domainContext={domainContext}><CustomerServicePage /></DomainRouteGuard>} />
+      <Route path="/order/checkout" element={<DomainRouteGuard allow={['customer']} domainContext={domainContext}><CustomerCheckoutPage /></DomainRouteGuard>} />
+      <Route path="/order/confirmation/:orderId" element={<DomainRouteGuard allow={['customer']} domainContext={domainContext}><CustomerOrderConfirmationPage /></DomainRouteGuard>} />
       <Route
         path="/kds"
         element={
-          <RequireAuth authReady={authReady} session={session}>
-            <OperationalServicePicker
-              title="Choose a service for KDS"
-              buildHref={(serviceId) => `/ops/${serviceId}/kds`}
-            />
-          </RequireAuth>
+          <DomainRouteGuard allow={['operator']} domainContext={domainContext}>
+            <RequireAuth authReady={authReady} domainContext={domainContext} session={session}>
+              <OperationalServicePicker
+                title="Choose a service for KDS"
+                buildHref={(serviceId) => `/ops/${serviceId}/kds`}
+              />
+            </RequireAuth>
+          </DomainRouteGuard>
         }
       />
       <Route
         path="/kds-2"
         element={
-          <RequireAuth authReady={authReady} session={session}>
-            <OperationalServicePicker
-              title="Choose a service for KDS 2"
-              buildHref={(serviceId) => `/ops/${serviceId}/kds-2`}
-            />
-          </RequireAuth>
+          <DomainRouteGuard allow={['operator']} domainContext={domainContext}>
+            <RequireAuth authReady={authReady} domainContext={domainContext} session={session}>
+              <OperationalServicePicker
+                title="Choose a service for KDS 2"
+                buildHref={(serviceId) => `/ops/${serviceId}/kds-2`}
+              />
+            </RequireAuth>
+          </DomainRouteGuard>
         }
       />
       <Route
         path="/expeditor"
         element={
-          <RequireAuth authReady={authReady} session={session}>
-            <OperationalServicePicker
-              title="Choose a service for Expeditor"
-              buildHref={(serviceId) => `/expeditor/${serviceId}`}
-            />
-          </RequireAuth>
+          <DomainRouteGuard allow={['operator']} domainContext={domainContext}>
+            <RequireAuth authReady={authReady} domainContext={domainContext} session={session}>
+              <OperationalServicePicker
+                title="Choose a service for Expeditor"
+                buildHref={(serviceId) => `/expeditor/${serviceId}`}
+              />
+            </RequireAuth>
+          </DomainRouteGuard>
         }
       />
       <Route
         path="/board"
         element={
-          <OperationalServicePicker
-            title="Choose a service for Customer Board"
-            buildHref={(serviceId) => `/ops/${serviceId}/board`}
-          />
+          <DomainRouteGuard allow={['operator']} domainContext={domainContext}>
+            <OperationalServicePicker
+              title="Choose a service for Customer Board"
+              buildHref={(serviceId) => `/ops/${serviceId}/board`}
+            />
+          </DomainRouteGuard>
         }
       />
-      <Route path="/ops/:serviceId/kds" element={<RequireAuth authReady={authReady} session={session}><ServiceScopedRoute><KdsPage /></ServiceScopedRoute></RequireAuth>} />
-      <Route path="/ops/:serviceId/kds-2" element={<RequireAuth authReady={authReady} session={session}><ServiceScopedRoute><Kds2Page /></ServiceScopedRoute></RequireAuth>} />
-      <Route path="/ops/:serviceId/expeditor" element={<RequireAuth authReady={authReady} session={session}><LegacyExpeditorRedirect /></RequireAuth>} />
-      <Route path="/expeditor/:serviceId" element={<RequireAuth authReady={authReady} session={session}><ServiceScopedRoute><ExpeditorPage /></ServiceScopedRoute></RequireAuth>} />
-      <Route path="/ops/:serviceId/board" element={<ServiceScopedRoute><CustomerBoardPage /></ServiceScopedRoute>} />
-      <Route path="/admin" element={<RequireAuth authReady={authReady} session={session}><AdminPage /></RequireAuth>} />
-      <Route path="/admin/locations" element={<RequireAuth authReady={authReady} session={session}><LocationsListPage /></RequireAuth>} />
-      <Route path="/admin/locations/new" element={<RequireAuth authReady={authReady} session={session}><LocationNewPage /></RequireAuth>} />
-      <Route path="/admin/locations/:locationId" element={<RequireAuth authReady={authReady} session={session}><LocationEditPage /></RequireAuth>} />
-      <Route path="/admin/services" element={<RequireAuth authReady={authReady} session={session}><ServicesListPage /></RequireAuth>} />
-      <Route path="/admin/services/new" element={<RequireAuth authReady={authReady} session={session}><ServiceNewPage /></RequireAuth>} />
-      <Route path="/admin/services/:serviceId" element={<RequireAuth authReady={authReady} session={session}><ServiceEditPage /></RequireAuth>} />
-      <Route path="/admin/menu" element={<RequireAuth authReady={authReady} session={session}><MenuAdminPage /></RequireAuth>} />
-      <Route path="/admin/discounts" element={<RequireAuth authReady={authReady} session={session}><DiscountCodesAdminPage /></RequireAuth>} />
-      <Route path="/admin/ingredients" element={<RequireAuth authReady={authReady} session={session}><IngredientsAdminPage /></RequireAuth>} />
-      <Route path="/admin/modifiers" element={<RequireAuth authReady={authReady} session={session}><ModifiersAdminPage /></RequireAuth>} />
-      <Route path="/payments/:paymentId" element={<RequireAuth authReady={authReady} session={session}><PaymentPage /></RequireAuth>} />
-      <Route path="*" element={<Navigate to="/ops" replace />} />
+      <Route path="/ops/:serviceId/kds" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><ServiceScopedRoute><KdsPage /></ServiceScopedRoute></RequireAuth></DomainRouteGuard>} />
+      <Route path="/ops/:serviceId/kds-2" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><ServiceScopedRoute><Kds2Page /></ServiceScopedRoute></RequireAuth></DomainRouteGuard>} />
+      <Route path="/ops/:serviceId/expeditor" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><LegacyExpeditorRedirect /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/expeditor/:serviceId" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><ServiceScopedRoute><ExpeditorPage /></ServiceScopedRoute></RequireAuth></DomainRouteGuard>} />
+      <Route path="/ops/:serviceId/board" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><ServiceScopedRoute><CustomerBoardPage /></ServiceScopedRoute></DomainRouteGuard>} />
+      <Route path="/admin" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><AdminPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/locations" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><LocationsListPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/locations/new" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><LocationNewPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/locations/:locationId" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><LocationEditPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/services" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><ServicesListPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/services/new" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><ServiceNewPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/services/:serviceId" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><ServiceEditPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/menu" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><MenuAdminPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/discounts" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><DiscountCodesAdminPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/ingredients" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><IngredientsAdminPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/admin/modifiers" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><ModifiersAdminPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="/payments/:paymentId" element={<DomainRouteGuard allow={['operator']} domainContext={domainContext}><RequireAuth authReady={authReady} domainContext={domainContext} session={session}><PaymentPage /></RequireAuth></DomainRouteGuard>} />
+      <Route path="*" element={<Navigate to={getDomainHomePath(domainContext)} replace />} />
     </Routes>
   )
 
@@ -476,11 +534,16 @@ function App() {
     return <LoadingScreen message="Loading display state..." standalone />
   }
 
+  if (domainContext.appMode === 'customer') {
+    return routes
+  }
+
   return location.pathname.startsWith('/order') || isStandaloneDisplayRoute || isAuthRoute ? routes : (
     <AppShell
       currentUserEmail={session?.user.email ?? null}
       loggingOut={loggingOut}
       onLogout={() => void handleLogout()}
+      showCustomerLink={domainContext.appMode !== 'operator'}
     >
       {routes}
     </AppShell>

@@ -44,7 +44,7 @@ function MetricChip({
   )
 }
 
-function getNavItems(serviceId: string) {
+function getNavItems(serviceId: string, showCustomerLink: boolean) {
   return [
     { href: '/ops', label: 'Choose Service', icon: ClipboardList },
     { href: `/ops/${serviceId}`, label: 'Order Entry', icon: Pizza },
@@ -58,7 +58,7 @@ function getNavItems(serviceId: string) {
     { href: '/admin/discounts', label: 'Discounts', icon: ReceiptText },
     { href: '/admin/ingredients', label: 'Ingredients', icon: ClipboardList },
     { href: '/admin/modifiers', label: 'Modifiers', icon: Settings2 },
-    { href: '/order', label: 'Public Order', icon: SmartphoneNfc },
+    ...(showCustomerLink ? [{ href: '/order', label: 'Public Order', icon: SmartphoneNfc }] as const : []),
   ] as const
 }
 
@@ -102,10 +102,12 @@ export function AppShell({
   currentUserEmail,
   onLogout,
   loggingOut = false,
+  showCustomerLink = true,
 }: PropsWithChildren<{
   currentUserEmail?: string | null
   onLogout?: () => void
   loggingOut?: boolean
+  showCustomerLink?: boolean
 }>) {
   const location = useLocation()
   const isOnline = usePizzaOpsStore((state) => state.isOnline)
@@ -115,7 +117,7 @@ export function AppShell({
   const loyverseQueue = usePizzaOpsStore((state) => state.loyverseQueue)
   const service = usePizzaOpsStore((state) => state.service)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const navItems = getNavItems(service.id)
+  const navItems = getNavItems(service.id, showCustomerLink)
   const routeTitle = getRouteTitle(location.pathname)
 
   useEffect(() => {
