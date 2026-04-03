@@ -71,6 +71,26 @@ export function DiscountCodesAdminPage() {
     setDraft(code)
   }
 
+  function updateUsageMode(nextUsageMode: DiscountCode['usageMode']) {
+    setDraft((current) => ({
+      ...current,
+      usageMode: nextUsageMode,
+      maxUses:
+        nextUsageMode === 'unlimited'
+          ? null
+          : nextUsageMode === 'single_use'
+            ? 1
+            : current.maxUses ?? 1,
+    }))
+  }
+
+  function updateMaxUses(value: string) {
+    setDraft((current) => ({
+      ...current,
+      maxUses: value === '' ? null : Number(value),
+    }))
+  }
+
   function saveCode() {
     const now = new Date().toISOString()
     const normalizedCode = draft.code.trim()
@@ -203,7 +223,7 @@ export function DiscountCodesAdminPage() {
           <div className="grid gap-4 sm:grid-cols-3">
             <label className="grid gap-2 text-sm">
               <span className="font-semibold text-slate-600">Usage mode</span>
-              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={draft.usageMode} onChange={(event) => setDraft((current) => ({ ...current, usageMode: event.target.value as DiscountCode['usageMode'] }))}>
+              <select className="h-11 rounded-xl border border-slate-300 bg-white px-3" value={draft.usageMode} onChange={(event) => updateUsageMode(event.target.value as DiscountCode['usageMode'])}>
                 <option value="single_use">Single use</option>
                 <option value="limited_use">Limited use</option>
                 <option value="unlimited">Unlimited</option>
@@ -211,7 +231,13 @@ export function DiscountCodesAdminPage() {
             </label>
             <label className="grid gap-2 text-sm">
               <span className="font-semibold text-slate-600">Max uses</span>
-              <Input type="number" min="1" disabled={draft.usageMode === 'unlimited'} value={draft.usageMode === 'single_use' ? 1 : draft.maxUses ?? ''} onChange={(event) => setDraft((current) => ({ ...current, maxUses: Number(event.target.value) || 1 }))} />
+              <Input
+                type="number"
+                min="1"
+                disabled={draft.usageMode === 'unlimited'}
+                value={draft.usageMode === 'single_use' ? 1 : draft.maxUses ?? ''}
+                onChange={(event) => updateMaxUses(event.target.value)}
+              />
             </label>
             <label className="grid gap-2 text-sm">
               <span className="font-semibold text-slate-600">Minimum order value</span>
