@@ -229,9 +229,15 @@ function useCustomerVoucher(
       items: draft.basket,
     })
 
+    const normalizedError = result.ok ? '' : result.error.toLowerCase()
     if (
       result.ok ||
-      !result.error.toLowerCase().includes('unable to validate this discount code right now')
+      !(
+        normalizedError.includes('unable to validate this discount code right now') ||
+        normalizedError.includes('unable to validate this code right now') ||
+        normalizedError.includes('unexpected server error') ||
+        normalizedError.includes('missing supabase server environment variables')
+      )
     ) {
       return result
     }
@@ -394,13 +400,13 @@ function CustomerShell({
   const resolvedTitle = eyebrow === 'Public Ordering' ? 'Order now' : title
   return (
     <div
-      className="min-h-screen px-4 py-6 text-slate-950 sm:px-6"
+      className="min-h-screen px-3 py-4 text-slate-950 sm:px-6 sm:py-6"
       style={{
         background: `radial-gradient(circle at top, ${branding.secondaryColor}, transparent 30%), linear-gradient(180deg, #fffdf8 0%, ${branding.secondaryColor} 100%)`,
       }}
     >
       <div className="mx-auto max-w-6xl">
-        <div className="mb-6 rounded-[28px] border border-white/70 bg-white/85 px-5 py-6 shadow-[0_30px_80px_rgba(15,23,42,0.08)] backdrop-blur sm:px-8">
+        <div className="mb-4 rounded-[28px] border border-white/70 bg-white/85 px-4 py-5 shadow-[0_30px_80px_rgba(15,23,42,0.08)] backdrop-blur sm:mb-6 sm:px-8 sm:py-6">
           <div className="min-h-16">
             {branding.logoUrl ? (
               <img src={branding.logoUrl} alt="Brand logo" className="h-16 w-auto object-contain" />
@@ -1100,12 +1106,12 @@ export function CustomerServicePage() {
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="grid gap-4">
           {!service.acceptPublicOrders ? (
-            <Card className="rounded-[28px] border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 sm:px-6">
+            <Card className="rounded-[28px] border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-700 sm:px-6">
               {service.publicOrderClosureReason ?? 'This service is not currently accepting online orders.'}
             </Card>
           ) : null}
 
-          <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
+          <Card className="rounded-[28px] border-white/70 bg-white/90 p-4 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Menu</p>
@@ -1164,7 +1170,7 @@ export function CustomerServicePage() {
           </Card>
         </div>
 
-        <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
+        <Card className="rounded-[28px] border-white/70 bg-white/90 p-4 sm:p-6">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Your order</p>
           <h2 className="mt-2 font-display text-3xl font-bold">Basket</h2>
           {draft.paymentState === 'pending_payment' ? (
@@ -1433,7 +1439,7 @@ export function CustomerCheckoutPage() {
   return (
     <CustomerShell eyebrow="Checkout" title="Confirm your collection details">
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
+        <Card className="rounded-[28px] border-white/70 bg-white/90 p-4 sm:p-6">
           <h2 className="font-display text-3xl font-bold">Your order</h2>
           <div className="mt-5 space-y-3">
             {draft.basket.map((item) => {
@@ -1481,7 +1487,7 @@ export function CustomerCheckoutPage() {
           </div>
         </Card>
 
-        <Card className="rounded-[28px] border-white/70 bg-white/90 p-5 sm:p-6">
+        <Card className="rounded-[28px] border-white/70 bg-white/90 p-4 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">Collection</p>

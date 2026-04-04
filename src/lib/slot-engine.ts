@@ -134,9 +134,19 @@ export function getAvailableSlots(
     return []
   }
 
-  const earliestTime = service.pausedUntil
-    ? addMinutes(service.pausedUntil, service.delayMinutes)
-    : addMinutes(combineDateAndTime(service.date, service.startTime), service.delayMinutes)
+  const serviceStartTime = combineDateAndTime(service.date, service.startTime)
+  const nowIso = new Date().toISOString()
+  const isSameServiceDay = nowIso.slice(0, 10) === service.date
+  const earliestBaseCandidates = [service.pausedUntil ?? serviceStartTime, serviceStartTime]
+
+  if (isSameServiceDay) {
+    earliestBaseCandidates.push(nowIso)
+  }
+
+  const earliestBase = earliestBaseCandidates.reduce((latest, current) =>
+    isAfterOrEqual(current, latest) ? current : latest,
+  )
+  const earliestTime = addMinutes(earliestBase, service.delayMinutes)
 
   if (capacityUnits <= 0) {
     return slots.reduce<SlotAvailability[]>((accumulator, slot) => {

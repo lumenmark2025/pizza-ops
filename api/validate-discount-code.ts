@@ -145,7 +145,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (discountError || menuError) {
       console.error('validate-discount-code query error', { discountError, menuError })
-      return res.status(500).json({ error: 'Unable to validate this code right now.' })
+      return res.status(500).json({ error: 'Unable to validate this discount code right now.' })
     }
 
     const discountCode = (discountRows ?? [])

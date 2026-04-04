@@ -652,6 +652,7 @@ async function mirrorOrderToSupabase(order: Order, serviceId: string) {
       item_discount_pence: Math.round(Number(item.itemDiscountAmount ?? 0) * 100),
       final_unit_price_pence: item.finalUnitPrice != null ? Math.round(Number(item.finalUnitPrice) * 100) : null,
       applied_discount_summary: item.appliedDiscountSummary ?? null,
+      progress_count: item.progressCount ?? 0,
       status: order.status,
       notes: item.notes ?? null,
     })),
